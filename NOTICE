@@ -1,0 +1,39 @@
+qa-radar
+========
+
+Copyright (c) 2026 Y-Kanekoo
+Licensed under the MIT License (see LICENSE file).
+
+Data Disclaimer / データ取扱いについて
+--------------------------------------
+This software aggregates publicly available RSS/Atom feeds from third-party
+sources. Article content (titles, snippets, URLs) remains the copyright of
+the original authors and publishers. This repository does NOT distribute
+article bodies or full-text re-publication.
+
+本ソフトウェアは公開RSS/Atomフィードを集約しますが、収集したコンテンツの
+著作権は各配信元・著者に帰属します。本リポジトリは記事本文の再配信を行いません。
+
+Operational guidelines / 運用ガイドライン:
+- Display titles, snippets (≤100 chars), and source URLs only.
+  公開する情報はタイトル、抜粋（100字以内）、元URLのみ。
+- Always link back to the original source.
+  全ての記事に元記事へのリンクを併記。
+- Honor robots.txt and Terms of Service of each source.
+  各ソースの robots.txt および利用規約を遵守。
+- Do not collect content behind authentication or paywalls.
+  認証・有料記事は収集対象外。
+- Respond promptly to takedown requests from content authors.
+  著者からの削除依頼には7日以内に対応。
+
+Legal basis / 法的根拠:
+This project operates within the bounds of Japan's Copyright Act
+Article 47-5 (incidental use for information location services) and
+Article 32 (quotation), with explicit attribution to source authors.
+
+本プロジェクトは日本国著作権法第47条の5（情報所在検索サービスの軽微利用）
+および第32条（引用）の範囲内で運用し、出所明示を徹底します。
+
+For takedown requests / 削除依頼:
+https://github.com/Y-Kanekoo/qa-radar/issues
+(Tag your issue with `takedown`)

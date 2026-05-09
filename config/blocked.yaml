@@ -1,0 +1,30 @@
+# qa-radar ブロックリスト（明示的に集約対象外とするドメイン・ソース）
+#
+# 追加基準:
+#   1. 利用規約で「プログラムによる再配信」を明示的に禁止しているサービス
+#   2. ログイン/有料コンテンツのみのサービス
+#   3. robots.txt で広範囲に Disallow しているサービス
+#
+# 新規追加時は、根拠となる ToS の URL と引用文を必ず記載してください。
+
+version: 1
+
+# 完全ブロック（フィードURLが何であれクロール禁止）
+blocked_domains:
+  - domain: jiji.com
+    reason: |
+      時事通信社RSS利用規約: 「プログラム等による再配信や再提供を許可するもの
+      ではありません」「情報の一部を抜粋したり、改変して再配信することはでき
+      ません」と明示禁止。個人の私的利用のみ。
+    source_url: https://www.jiji.com/policy/rss.html
+
+# Phase 1 以降、新規ソース提案で「ToS確認の結果NGだった」ものを記録する
+blocked_feeds: []
+
+# 取得時に robots.txt の Disallow を確認すべきドメイン（メモ）
+# クローラーは全ドメインで robots.txt を尊重するが、特に注意が必要なものを列挙
+robots_strict_domains:
+  - domain: medium.com
+    note: User-Agent別の制限あり、UA固定+遅延必須
+  - domain: techblog.recruit.co.jp
+    note: 503/404が頻発、サーバ側スロットリング疑い

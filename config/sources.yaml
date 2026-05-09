@@ -1,0 +1,353 @@
+# qa-radar ソースリスト（30本、Day1版）
+#
+# スキーマ:
+#   slug:       一意ID (snake_case 推奨、DB の sources.slug に保存)
+#   name:       表示名
+#   feed_url:   RSS / Atom / JSON Feed URL
+#   site_url:   サイトトップ
+#   language:   ja | en
+#   category:   tool | blog | community | paper | note
+#   enabled:    クローラーが取り込むか
+#   fetch_policy:
+#     min_interval_seconds:   再取得の最小間隔（DDoS抑止）
+#     max_items_per_fetch:    1回の取得で読む上限
+#   license_note:             利用規約上の集約可否についてのメモ
+#
+# 全URLは 2026-05-09 時点で実物確認済み（WebFetch にて 200 応答 + 直近3〜6ヶ月の活動確認）。
+# 追加・変更時は CONTRIBUTING.md の手順に従ってください。
+
+version: 1
+
+sources:
+
+  # ============================================================
+  # Tool releases (9): GitHub Atom フィード、ToS明示禁止なし
+  # ============================================================
+
+  - slug: playwright-releases
+    name: Playwright releases
+    feed_url: https://github.com/microsoft/playwright/releases.atom
+    site_url: https://playwright.dev
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: cypress-releases
+    name: Cypress releases
+    feed_url: https://github.com/cypress-io/cypress/releases.atom
+    site_url: https://www.cypress.io
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: selenium-releases
+    name: Selenium releases
+    feed_url: https://github.com/SeleniumHQ/selenium/releases.atom
+    site_url: https://www.selenium.dev
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: jest-releases
+    name: Jest releases
+    feed_url: https://github.com/jestjs/jest/releases.atom
+    site_url: https://jestjs.io
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: vitest-releases
+    name: Vitest releases
+    feed_url: https://github.com/vitest-dev/vitest/releases.atom
+    site_url: https://vitest.dev
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: pytest-releases
+    name: pytest releases
+    feed_url: https://github.com/pytest-dev/pytest/releases.atom
+    site_url: https://pytest.org
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: appium-releases
+    name: Appium releases
+    feed_url: https://github.com/appium/appium/releases.atom
+    site_url: https://appium.io
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: k6-releases
+    name: k6 releases (Grafana)
+    feed_url: https://github.com/grafana/k6/releases.atom
+    site_url: https://k6.io
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: allure-releases
+    name: Allure 2 releases
+    feed_url: https://github.com/allure-framework/allure2/releases.atom
+    site_url: https://allurereport.org
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  # ============================================================
+  # Vendor blogs (4 EN)
+  # ============================================================
+
+  - slug: google-testing-blog
+    name: Google Testing Blog
+    feed_url: http://feeds.feedburner.com/blogspot/RLXA
+    site_url: https://testing.googleblog.com
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: Blogger標準フィード、引用可
+
+  - slug: mabl-blog
+    name: mabl Blog
+    feed_url: https://www.mabl.com/blog/rss.xml
+    site_url: https://www.mabl.com/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、出所明示+リンクバックで集約可
+
+  - slug: applitools-blog
+    name: Applitools Blog
+    feed_url: https://applitools.com/blog/feed/
+    site_url: https://applitools.com/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、出所明示+リンクバックで集約可
+
+  - slug: browserstack-blog
+    name: BrowserStack Blog
+    feed_url: https://www.browserstack.com/blog/feed/
+    site_url: https://www.browserstack.com/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、出所明示+リンクバックで集約可
+
+  # ============================================================
+  # Community feeds (3)
+  # ============================================================
+
+  - slug: mot-club
+    name: Ministry of Testing Club
+    feed_url: https://club.ministryoftesting.com/latest.rss
+    site_url: https://club.ministryoftesting.com
+    language: en
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: Discourseのlatest.rss、フォーラム標準で公衆配信
+
+  - slug: devto-qa
+    name: DEV.to /tag/qa
+    feed_url: https://dev.to/feed/tag/qa
+    site_url: https://dev.to/t/qa
+    language: en
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: 公開タグフィード、再投稿は禁止だがリンクバックで集約可
+
+  - slug: medium-test-automation
+    name: Medium /tag/test-automation
+    feed_url: https://medium.com/feed/tag/test-automation
+    site_url: https://medium.com/tag/test-automation
+    language: en
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: 公開タグフィード、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  # ============================================================
+  # Japanese tech-company blogs (5)
+  # ============================================================
+
+  - slug: cybozu-tech
+    name: Cybozu Inside Out
+    feed_url: https://blog.cybozu.io/feed
+    site_url: https://blog.cybozu.io
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 30 }
+    license_note: はてなブログ、出所明示+リンクバックで集約可
+
+  - slug: m3-tech
+    name: m3 Tech Blog (QAカテゴリ含む)
+    feed_url: https://www.m3tech.blog/feed
+    site_url: https://www.m3tech.blog
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 30 }
+    license_note: はてなブログ、QAカテゴリ年20-25本
+
+  - slug: sansan-builders-box
+    name: Sansan Builders Box
+    feed_url: https://buildersbox.corp-sansan.com/feed
+    site_url: https://buildersbox.corp-sansan.com
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 30 }
+    license_note: はてなブログ、QAカテゴリ年12本
+
+  - slug: kakehashi-tech
+    name: KAKEHASHI Tech Blog
+    feed_url: https://kakehashi-dev.hatenablog.com/feed
+    site_url: https://kakehashi-dev.hatenablog.com
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 30 }
+    license_note: はてなブログ、QAカテゴリ19本
+
+  - slug: base-product
+    name: BASE Product Team Blog
+    feed_url: https://devblog.thebase.in/feed
+    site_url: https://devblog.thebase.in
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 30 }
+    license_note: はてなブログ、性能QA連載
+
+  # ============================================================
+  # Japanese individual / community blogs (3)
+  # ============================================================
+
+  - slug: nihonbuson
+    name: ブロッコリーのブログ (nihonbuson)
+    feed_url: https://nihonbuson.hatenadiary.jp/feed
+    site_url: https://nihonbuson.hatenadiary.jp
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: 個人ブログ、引用+出所明示+リンクバックで運用
+
+  - slug: kawaguti
+    name: kawaguti's diary
+    feed_url: https://kawaguti.hateblo.jp/feed
+    site_url: https://kawaguti.hateblo.jp
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: 個人ブログ、引用+出所明示+リンクバックで運用
+
+  - slug: goyoki
+    name: 千里霧中 (goyoki)
+    feed_url: https://goyoki.hatenablog.com/feed
+    site_url: https://goyoki.hatenablog.com
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: 個人ブログ、QA記事密度高、引用+出所明示+リンクバックで運用
+
+  # ============================================================
+  # note.com 個人 (4)
+  # ============================================================
+
+  - slug: akiyama924-note
+    name: 秋山浩一 (akiyama924) note
+    feed_url: https://note.com/akiyama924/rss
+    site_url: https://note.com/akiyama924
+    language: ja
+    category: note
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: note公開RSS、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  - slug: tarappo-note
+    name: tarappo note
+    feed_url: https://note.com/tarappo/rss
+    site_url: https://note.com/tarappo
+    language: ja
+    category: note
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: note公開RSS、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  - slug: yumotsuyo-note
+    name: 湯本剛 (yumotsuyo) note
+    feed_url: https://note.com/yumotsuyo/rss
+    site_url: https://note.com/yumotsuyo
+    language: ja
+    category: note
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: note公開RSS、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  - slug: qa-tpen-note
+    name: QAを楽しむ者 note
+    feed_url: https://note.com/qa_tpen/rss
+    site_url: https://note.com/qa_tpen
+    language: ja
+    category: note
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: note公開RSS、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  # ============================================================
+  # Zenn Publication (1)
+  # ============================================================
+
+  - slug: mybest-zenn
+    name: マイベスト (Zenn Publication)
+    feed_url: https://zenn.dev/p/mybest_dev/feed
+    site_url: https://zenn.dev/p/mybest_dev
+    language: ja
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 20 }
+    license_note: Zennパブリケーション、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  # ============================================================
+  # Academic papers (1)
+  # ============================================================
+
+  - slug: arxiv-cs-se
+    name: arxiv cs.SE (Software Engineering)
+    feed_url: https://rss.arxiv.org/rss/cs.SE
+    site_url: https://arxiv.org/list/cs.SE/recent
+    language: en
+    category: paper
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 50 }
+    license_note: arxiv公式RSS、メタデータCC0

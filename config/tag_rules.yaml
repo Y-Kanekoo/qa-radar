@@ -1,0 +1,196 @@
+# qa-radar タグ付けルール
+#
+# 適用方針:
+#   1. 各記事に対し、title (重み2) + body (重み1) + tags_text (重み1) を小文字化して
+#      keywords を部分一致でマッチ
+#   2. 各 tag のスコアが threshold 以上で確定（デフォルト2）
+#   3. 1 記事あたり最大 max_tags 個まで（スコア降順）
+#   4. tooling は requires_co_tag: true のため、他タグと併用時のみ付与
+#   5. ヒット 0 個の記事は別途 LLM フォールバックの対象（Phase 8）
+#
+# 固定タグ（10個）:
+#   e2e / unit / integration / performance / security / api / mobile /
+#   ai-testing / process / tooling
+#
+# 共起ルール: 特定タグの組合せから別タグを自動補完する.
+
+version: 1
+
+defaults:
+  case_sensitive: false
+  max_tags: 3
+  threshold: 2
+  weight_title: 2
+  weight_body: 1
+  weight_tags_text: 1
+
+rules:
+  - tag: e2e
+    keywords:
+      - playwright
+      - cypress
+      - selenium
+      - webdriver
+      - puppeteer
+      - "end-to-end"
+      - e2e
+      - testcafe
+      - "browser test"
+      - nightwatch
+      - "ui automation"
+
+  - tag: unit
+    keywords:
+      - jest
+      - vitest
+      - pytest
+      - junit
+      - xunit
+      - nunit
+      - "unit test"
+      - "unit testing"
+      - tdd
+      - mockito
+      - "test double"
+      - "ユニットテスト"
+      - "単体テスト"
+
+  - tag: integration
+    keywords:
+      - "integration test"
+      - "integration testing"
+      - "contract test"
+      - "consumer-driven"
+      - pact
+      - testcontainers
+      - wiremock
+      - mountebank
+      - "結合テスト"
+      - "統合テスト"
+
+  - tag: performance
+    keywords:
+      - k6
+      - jmeter
+      - gatling
+      - locust
+      - "load test"
+      - "load testing"
+      - "stress test"
+      - "performance test"
+      - "performance testing"
+      - neoload
+      - artillery
+      - "負荷テスト"
+      - "性能テスト"
+
+  - tag: security
+    keywords:
+      - owasp
+      - "zap proxy"
+      - burp
+      - sast
+      - dast
+      - iast
+      - "penetration test"
+      - "pen test"
+      - fuzzing
+      - "security testing"
+      - "vulnerability scan"
+      - snyk
+      - semgrep
+      - "セキュリティテスト"
+      - "脆弱性"
+
+  - tag: api
+    keywords:
+      - "rest assured"
+      - postman
+      - karate
+      - schemathesis
+      - openapi
+      - "graphql test"
+      - "grpc test"
+      - "api testing"
+      - "api contract"
+      - soapui
+      - insomnia
+      - "api test"
+
+  - tag: mobile
+    keywords:
+      - appium
+      - xcuitest
+      - espresso
+      - detox
+      - "ios test"
+      - "android test"
+      - "mobile testing"
+      - "mobile automation"
+      - maestro
+      - "モバイルテスト"
+
+  - tag: ai-testing
+    keywords:
+      - "llm test"
+      - "prompt eval"
+      - "prompt engineering"
+      - deepeval
+      - promptfoo
+      - "ai-augmented testing"
+      - "model testing"
+      - "ml testing"
+      - "copilot for testing"
+      - "ai test generation"
+      - "self-healing test"
+      - "agentic testing"
+      - "ai駆動"
+      - "ai 駆動"
+      - "claude code"
+      - "playwright agent"
+
+  - tag: process
+    keywords:
+      - "shift-left"
+      - "shift left"
+      - "test pyramid"
+      - "quality coaching"
+      - "qa career"
+      - "qa hiring"
+      - "qa role"
+      - istqb
+      - jstqb
+      - "quality engineering"
+      - "testing strategy"
+      - "テスト戦略"
+      - "品質保証"
+      - "品質文化"
+      - "set チーム"
+
+  - tag: tooling
+    requires_co_tag: true
+    keywords:
+      - "github releases"
+      - released
+      - "now available"
+      - changelog
+      - roadmap
+      - "tool comparison"
+      - "best tools"
+      - "v1."
+      - "v2."
+      - "v3."
+      - "リリース"
+
+co_occurrence:
+  # ツール名が出る記事は tooling も併記する
+  - if_any: [playwright, cypress, selenium, jest, vitest, pytest, k6, jmeter, gatling, appium]
+    add: [tooling]
+
+  # OWASP系はプロセス論寄りでもあるため process も補完
+  - if_any: [owasp, "owasp top 10"]
+    add: [security, process]
+
+  # AI記事 + テストツール → ai-testing も付与
+  - if_all: ["claude", "test"]
+    add: [ai-testing]
