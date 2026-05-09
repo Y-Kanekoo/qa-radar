@@ -148,6 +148,11 @@ rules:
       - "ai 駆動"
       - "claude code"
       - "playwright agent"
+      - "github copilot"
+      - "ai エージェント"
+      - "ai agent"
+      - "生成ai"
+      - "llmエージェント"
 
   - tag: process
     keywords:
@@ -166,6 +171,15 @@ rules:
       - "品質保証"
       - "品質文化"
       - "set チーム"
+      - "qaエンジニア"
+      - "qa エンジニア"
+      - "qa組織"
+      - "テスト計画"
+      - "テスト管理"
+      - "テスト設計"
+      - "テストプロセス"
+      - "プロポーザル"
+      - "テストマネジメント"
 
   - tag: tooling
     requires_co_tag: true
@@ -194,3 +208,18 @@ co_occurrence:
   # AI記事 + テストツール → ai-testing も付与
   - if_all: ["claude", "test"]
     add: [ai-testing]
+
+# ソース別固定タグ:
+# 該当 slug のソースから取得した記事には以下のタグが必ず付与される.
+# requires_co_tag バイパス. キーワードベースのタグはこれに上乗せされる.
+# 主にツールリリース feed 用 (タイトルがバージョン番号のみで keyword マッチしないため).
+source_tags:
+  playwright-releases: [e2e, tooling]
+  cypress-releases: [e2e, tooling]
+  selenium-releases: [e2e, tooling]
+  jest-releases: [unit, tooling]
+  vitest-releases: [unit, tooling]
+  pytest-releases: [unit, tooling]
+  appium-releases: [mobile, tooling]
+  k6-releases: [performance, tooling]
+  allure-releases: [tooling, process]  # テストレポート/管理 (process)

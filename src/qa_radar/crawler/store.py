@@ -23,6 +23,7 @@ class ArticleRow:
     body: str | None
     author: str | None
     published_at: int
+    tags: list[str] | None = None  # None なら空タグで挿入 (Phase 2 から指定)
 
 
 def upsert_source(conn: sqlite3.Connection, source: SourceConfig) -> int:
@@ -64,13 +65,14 @@ def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
     Returns:
         新規挿入で True、UNIQUE 制約による重複で False.
     """
+    tags_json = json.dumps(article.tags or [], ensure_ascii=False)
     try:
         conn.execute(
             """
             INSERT INTO articles
                 (source_id, guid, url, title, snippet, body_hash, body, author,
                  published_at, fetched_at, tags_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article.source_id,
@@ -83,6 +85,7 @@ def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
                 article.author,
                 article.published_at,
                 int(time.time()),
+                tags_json,
             ),
         )
         conn.commit()

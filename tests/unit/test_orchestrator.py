@@ -77,6 +77,39 @@ async def test_full_crawl_inserts_2_articles(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_crawl_tags_articles(tmp_path: Path) -> None:
+    """run_crawl は記事に tag を付与して挿入する (Phase 2 統合確認)."""
+    import json as _json
+
+    # ATOM のタイトルが Playwright/E2E にヒットするカスタムフィードを作る (ASCIIのみ)
+    content = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>x</title><updated>2024-01-15T12:00:00Z</updated>
+  <entry><id>g1</id><link href="https://e.com/1"/>
+    <title>Playwright v1.50.0 released</title>
+    <published>2024-01-15T00:00:00Z</published>
+    <content>New release with improvements</content></entry>
+</feed>"""
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=content))
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        conn = init_db(tmp_path / "test.db")
+        try:
+            await run_crawl(
+                conn,
+                [_src()],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            row = conn.execute("SELECT tags_json FROM articles").fetchone()
+            tags = _json.loads(row["tags_json"])
+        finally:
+            conn.close()
+    # Playwright タイトルなので e2e タグが付くはず
+    assert "e2e" in tags
+
+
+@pytest.mark.asyncio
 async def test_dedup_on_second_run(tmp_path: Path) -> None:
     """2回目のクロールで articles_added=0."""
     async with httpx.AsyncClient(transport=_atom_transport()) as client:
