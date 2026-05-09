@@ -31,6 +31,8 @@ from qa_radar.crawler.store import (
     upsert_source,
 )
 from qa_radar.sources import BlockedConfig, SourceConfig
+from qa_radar.tagger.engine import assign_tags
+from qa_radar.tagger.rules import TaggerConfig, load_tagger_config
 
 logger = logging.getLogger("qa_radar.crawler")
 
@@ -58,6 +60,7 @@ async def _process_source(
     blocked: BlockedConfig,
     client: httpx.AsyncClient,
     robots: RobotsCache,
+    tagger: TaggerConfig,
 ) -> tuple[int, dict[str, object] | None]:
     """1ソースを処理する. (追加件数, エラー情報 or None) を返す."""
     if _is_blocked(source.feed_url, blocked):
@@ -150,16 +153,19 @@ async def _process_source(
             continue
         if is_known(conn, source_id, item.guid):
             continue
+        body_plain = strip_html(item.body)
+        title_clean = item.title.strip()
         article = ArticleRow(
             source_id=source_id,
             guid=item.guid,
             url=normalize_url(item.url),
-            title=item.title.strip(),
+            title=title_clean,
             snippet=make_snippet(item.body, max_chars=100),
             body_hash=compute_body_hash(item.body),
-            body=strip_html(item.body),
+            body=body_plain,
             author=item.author,
             published_at=normalize_published(item.published_struct),
+            tags=assign_tags(title_clean, body_plain, tagger, source_slug=source.slug),
         )
         if insert_article(conn, article):
             added += 1
@@ -182,6 +188,7 @@ async def run_crawl(
     *,
     concurrency: int = 5,
     client: httpx.AsyncClient | None = None,
+    tagger: TaggerConfig | None = None,
 ) -> CrawlResult:
     """全ソースを並列にクロールする.
 
@@ -191,6 +198,7 @@ async def run_crawl(
         blocked: ブロックリスト.
         concurrency: 同時実行数. 5以下推奨 (相手サーバ負荷).
         client: 共有 AsyncClient. None なら関数内で生成する.
+        tagger: タガー設定. None なら `config/tag_rules.yaml` から読む.
 
     Returns:
         CrawlResult.
@@ -198,12 +206,13 @@ async def run_crawl(
     run_id = start_crawl_run(conn)
     sem = asyncio.Semaphore(concurrency)
     robots = RobotsCache()
+    tagger_config = tagger if tagger is not None else load_tagger_config()
 
     async def _process_with_sem(
         s: SourceConfig, c: httpx.AsyncClient
     ) -> tuple[int, dict[str, object] | None]:
         async with sem:
-            return await _process_source(conn, s, blocked, c, robots)
+            return await _process_source(conn, s, blocked, c, robots, tagger_config)
 
     if client is None:
         async with httpx.AsyncClient(
