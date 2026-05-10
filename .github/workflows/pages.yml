@@ -1,0 +1,66 @@
+name: Deploy GitHub Pages
+
+# Phase 3 では手動トリガーと main 直 push を許可する.
+# Phase 7 で cron からの呼び出しを追加し、最新DBで自動再構築する予定.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/qa_radar/publisher/**"
+      - "scripts/build_pages.py"
+      - "docs/style.css"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Crawl sources (build fresh DB)
+        run: uv run python scripts/run_crawl.py --concurrency 5
+
+      - name: Build pages
+        run: uv run python scripts/build_pages.py
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs/_build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
