@@ -15,7 +15,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: article_notifications テーブルを追加 (Phase 4)
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
     articles_added INTEGER DEFAULT 0,
     errors_json TEXT
 );
+
+-- v2 (Phase 4): 記事通知状態. channel ごとに既送信を追跡する.
+CREATE TABLE IF NOT EXISTS article_notifications (
+    id INTEGER PRIMARY KEY,
+    article_id INTEGER NOT NULL REFERENCES articles(id),
+    channel TEXT NOT NULL,
+    notified_at INTEGER NOT NULL,
+    UNIQUE(article_id, channel)
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel);
+CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id);
 """
 
 
@@ -117,8 +128,14 @@ def init_db(path: Path) -> sqlite3.Connection:
     if row is None:
         conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
         conn.commit()
-    elif row["version"] != SCHEMA_VERSION:
+    elif row["version"] < SCHEMA_VERSION:
+        # 前方マイグレーション: 新テーブルは CREATE TABLE IF NOT EXISTS で既に作成済み.
+        # 列追加が無いバージョン差分なら version 番号の更新のみで十分.
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+        conn.commit()
+    elif row["version"] > SCHEMA_VERSION:
         raise RuntimeError(
-            f"スキーマバージョン不一致: DB={row['version']} != コード={SCHEMA_VERSION}"
+            f"スキーマバージョン不一致: DB={row['version']} > コード={SCHEMA_VERSION}. "
+            "より新しいコードでDBが作られている可能性があります."
         )
     return conn
