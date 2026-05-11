@@ -1,8 +1,6 @@
-"""Phase 0: CI緑化のためのスモークテスト."""
+"""Phase 0/5: CI緑化のためのスモークテスト."""
 
 from __future__ import annotations
-
-import pytest
 
 import qa_radar
 
@@ -12,15 +10,32 @@ def test_version() -> None:
     assert qa_radar.__version__ == "0.1.0"
 
 
-def test_main_raises_until_phase5() -> None:
-    """`main()` は Phase 5 完了まで SystemExit を投げる."""
-    with pytest.raises(SystemExit):
-        qa_radar.main()
+def test_main_callable() -> None:
+    """`main()` が callable (Phase 5 で MCP サーバー起動に切替)."""
+    assert callable(qa_radar.main)
 
 
-def test_module_invocation_raises() -> None:
-    """`python -m qa_radar` 経路でも SystemExit になる."""
-    import runpy
+def test_server_module_imports() -> None:
+    """MCP サーバーモジュールがインポートエラーなくロードできる."""
+    from qa_radar import server
 
-    with pytest.raises(SystemExit):
-        runpy.run_module("qa_radar", run_name="__main__")
+    assert hasattr(server, "mcp")
+    assert hasattr(server, "run_stdio")
+    assert server.APP_NAME == "qa-radar"
+
+
+def test_tools_module_imports() -> None:
+    """tools 5本が全てインポート可能."""
+    from qa_radar.tools import (
+        get_article_impl,
+        list_recent_impl,
+        list_sources_impl,
+        list_tags_impl,
+        search_articles_impl,
+    )
+
+    assert callable(search_articles_impl)
+    assert callable(list_recent_impl)
+    assert callable(get_article_impl)
+    assert callable(list_sources_impl)
+    assert callable(list_tags_impl)

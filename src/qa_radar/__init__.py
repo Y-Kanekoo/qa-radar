@@ -7,11 +7,11 @@ __all__ = ["__version__", "main"]
 
 
 def main() -> None:
-    """MCPサーバーのエントリポイント.
+    """`qa-radar` スクリプトと `python -m qa_radar` のエントリポイント.
 
-    Phase 5（MCP server）で実装する.それまではプレースホルダ.
+    MCP サーバーを stdio で起動する. DB が存在しない場合はヒント付きエラーを
+    stderr に出力して終了する.
     """
-    raise SystemExit(
-        "qa-radar MCP サーバーは Phase 5 で実装予定です。\n"
-        "進捗: https://github.com/Y-Kanekoo/qa-radar"
-    )
+    from qa_radar.server import run_stdio
+
+    run_stdio()
