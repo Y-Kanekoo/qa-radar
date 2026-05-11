@@ -1,0 +1,101 @@
+name: Publish to PyPI
+
+# トリガ:
+#   - `v*.*.*` 形式の tag push (例: v0.1.0) → TestPyPI → PyPI を順次公開
+#   - `v*.*.*-rc*` 形式の tag (例: v0.1.0-rc1) → TestPyPI のみ
+#   - workflow_dispatch → 手動実行 (test_only オプションあり)
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-*"
+  workflow_dispatch:
+    inputs:
+      test_only:
+        description: "TestPyPI のみ (本番 PyPI にはアップロードしない)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Build
+        run: uv build
+
+      - name: Verify wheel contents
+        run: |
+          uv run --with twine -- twine check dist/*
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/qa-radar
+    permissions:
+      id-token: write  # OIDC for Trusted Publishing
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # skip-existing: pre-release tag を複数回 push しても再アップロードでエラーにしない
+          skip-existing: true
+
+  publish-pypi:
+    name: Publish to PyPI (production)
+    needs: publish-testpypi
+    # 本番への公開:
+    #   - tag push で v*.*.* (rc 等のプレリリース無し) のときのみ
+    #   - workflow_dispatch のときは test_only=false 指定時のみ
+    if: >-
+      (github.event_name == 'push' && !contains(github.ref_name, '-')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.test_only != true)
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/qa-radar
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
