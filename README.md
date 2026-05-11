@@ -27,7 +27,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 3. RSS + Pages | ⏳ |
 | 4. Discord notifier | ⏳ |
 | 5. MCP server | ✅ |
-| 6. PyPI publish | ⏳ |
+| 6. PyPI publish | ✅ |
 | 7. Cron automation | ⏳ |
 | 8. LLM summarizer (optional) | ⏳ |
 
@@ -71,7 +71,7 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
   "mcpServers": {
     "qa-radar": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/Y-Kanekoo/qa-radar", "qa-radar"],
+      "args": ["qa-radar"],
       "env": {
         "QA_RADAR_DB_PATH": "/path/to/articles.db"
       }
@@ -79,6 +79,11 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
   }
 }
 ```
+
+(`uvx qa-radar` pulls the latest published version from PyPI on first run and caches it.)
+
+If you want to pin a specific version or pre-release, use `uvx qa-radar==0.1.0` or
+`uvx --from git+https://github.com/Y-Kanekoo/qa-radar qa-radar` for the latest `main`.
 
 For development with a local clone:
 
@@ -95,7 +100,6 @@ For development with a local clone:
 
 DB path resolution order: `QA_RADAR_DB_PATH` env var > repo-local `data/articles.db` > `~/Library/Caches/qa-radar/articles.db` (macOS).
 
-After Phase 6 (PyPI publish), the simpler `"args": ["qa-radar"]` form will work.
 
 ## Development setup
 

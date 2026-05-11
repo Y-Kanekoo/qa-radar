@@ -9,12 +9,20 @@ authors = [{ name = "Y-Kanekoo" }]
 keywords = ["qa", "testing", "rss", "mcp", "aggregator", "claude"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Natural Language :: Japanese",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Quality Assurance",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: News/Diary",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 # Phase ごとにdependenciesを段階的に追加していく:
 #   Phase 1: feedparser, httpx, pyyaml ← 追加済み
@@ -56,6 +64,22 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qa_radar"]
+# PEP 561: 型ヒント付きパッケージである旨を示すマーカファイル
+include = ["src/qa_radar/py.typed"]
+
+[tool.hatch.build.targets.sdist]
+# sdist には config/ も含めて `uvx qa-radar` 単体で動くようにする
+include = [
+    "src/qa_radar/**",
+    "config/sources.yaml",
+    "config/tag_rules.yaml",
+    "config/blocked.yaml",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "README.ja.md",
+    "CHANGELOG.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
