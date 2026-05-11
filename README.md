@@ -26,7 +26,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 2. Tagger | ⏳ |
 | 3. RSS + Pages | ⏳ |
 | 4. Discord notifier | ⏳ |
-| 5. MCP server | ⏳ |
+| 5. MCP server | ✅ |
 | 6. PyPI publish | ⏳ |
 | 7. Cron automation | ⏳ |
 | 8. LLM summarizer (optional) | ⏳ |
@@ -54,6 +54,49 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 See [config/sources.yaml](config/sources.yaml) for the full list and
 [docs/sources.md](docs/sources.md) for ToS analysis.
 
+## MCP server usage
+
+The local MCP server exposes 5 tools you can call from Claude Desktop / Claude Code:
+
+- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5+BM25
+- `list_recent(days, source?, tag?, limit)` — recent articles
+- `get_article(article_id, include_body)` — article details (body defaults to off)
+- `list_sources()` — aggregated sources with counts
+- `list_tags(min_count, limit)` — tag occurrence counts
+
+Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "qa-radar": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/Y-Kanekoo/qa-radar", "qa-radar"],
+      "env": {
+        "QA_RADAR_DB_PATH": "/path/to/articles.db"
+      }
+    }
+  }
+}
+```
+
+For development with a local clone:
+
+```json
+{
+  "mcpServers": {
+    "qa-radar": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/qa-radar", "run", "python", "-m", "qa_radar"]
+    }
+  }
+}
+```
+
+DB path resolution order: `QA_RADAR_DB_PATH` env var > repo-local `data/articles.db` > `~/Library/Caches/qa-radar/articles.db` (macOS).
+
+After Phase 6 (PyPI publish), the simpler `"args": ["qa-radar"]` form will work.
+
 ## Development setup
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
@@ -64,6 +107,11 @@ cd qa-radar
 uv sync --all-extras --dev
 uv run pytest -v
 uv run ruff check .
+
+# Start the MCP server locally (stdio) for manual testing
+uv run python -m qa_radar
+# Or open the MCP Inspector:
+uv run mcp dev src/qa_radar/server.py
 ```
 
 ## License
