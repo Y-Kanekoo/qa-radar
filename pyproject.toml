@@ -39,7 +39,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ai = []  # Phase 8 で `anthropic>=0.40` を追加
+ai = [
+    "anthropic>=0.40",
+]
 
 [project.scripts]
 qa-radar = "qa_radar:main"

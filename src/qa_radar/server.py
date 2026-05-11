@@ -211,6 +211,55 @@ def list_tags(
     return list_tags_impl(db, min_count=min_count, limit=limit)
 
 
+# ---------------- Phase 8: summarize_article (opt-in) ----------------
+# ANTHROPIC_API_KEY が設定されていて anthropic がインストール済みの場合のみ tool 登録.
+# こうすることで LLM 依存をオプションに保ち、未設定環境では tool 一覧にも出ない.
+from qa_radar.summarizer.anthropic_client import is_available as _llm_available  # noqa: E402
+
+if _llm_available():
+    from qa_radar.summarizer.anthropic_client import (
+        DEFAULT_MAX_TOKENS,
+        DEFAULT_MODEL,
+    )
+    from qa_radar.summarizer.anthropic_client import (
+        summarize as _summarize_text,
+    )
+
+    @mcp.tool()
+    def summarize_article(
+        ctx: Context,
+        article_id: int,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        model: str = DEFAULT_MODEL,
+    ) -> dict[str, Any]:
+        """記事を Claude Haiku で 3 行要約する (opt-in tool).
+
+        この tool は ANTHROPIC_API_KEY と `anthropic` パッケージが両方ある時のみ
+        登録される. ローカル MCP からの自分用利用専用 (本文を LLM に渡す).
+
+        Args:
+            article_id: search_articles / list_recent の戻り値の `id`.
+            max_tokens: 要約の最大トークン数 (既定 300).
+            model: Claude モデル ID (既定 claude-haiku-4-5).
+
+        Returns:
+            {article_id, title, url, source_name, summary} の dict.
+        """
+        db = ctx.request_context.lifespan_context.db
+        article = get_article_impl(db, article_id, include_body=True)
+        body = article.get("body") or article.get("snippet", "")
+        if not body:
+            raise ValueError(f"記事 id={article_id} の本文が空です")
+        summary = _summarize_text(body, model=model, max_tokens=max_tokens)
+        return {
+            "article_id": article_id,
+            "title": article["title"],
+            "url": article["url"],
+            "source_name": article["source_name"],
+            "summary": summary,
+        }
+
+
 def run_stdio() -> None:
     """MCP サーバーを stdio トランスポートで起動する."""
     mcp.run(transport="stdio")

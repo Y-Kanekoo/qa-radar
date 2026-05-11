@@ -29,7 +29,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 5. MCP server | ✅ |
 | 6. PyPI publish | ✅ |
 | 7. Cron automation | ✅ |
-| 8. LLM summarizer (optional) | ⏳ |
+| 8. LLM summarizer (optional) | ✅ |
 
 ## Differentiation
 
@@ -63,6 +63,7 @@ The local MCP server exposes 5 tools you can call from Claude Desktop / Claude C
 - `get_article(article_id, include_body)` — article details (body defaults to off)
 - `list_sources()` — aggregated sources with counts
 - `list_tags(min_count, limit)` — tag occurrence counts
+- `summarize_article(article_id, max_tokens, model)` — **opt-in**. Requires `ANTHROPIC_API_KEY` env and `pip install qa-radar[ai]`. Summarizes article body with Claude Haiku 4.5.
 
 Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.json`):
 
