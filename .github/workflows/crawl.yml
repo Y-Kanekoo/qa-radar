@@ -1,0 +1,112 @@
+name: Crawl, build, and deploy
+
+# cron: 09:00 / 15:00 / 21:00 JST (UTC = 00:00 / 06:00 / 12:00)
+on:
+  schedule:
+    - cron: "0 0,6,12 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_discord:
+        description: "Discord 通知をスキップ"
+        type: boolean
+        default: false
+      skip_deploy:
+        description: "Pages デプロイをスキップ"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # release create / delete
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "crawl"
+  cancel-in-progress: false
+
+jobs:
+  crawl-and-build:
+    name: Crawl + tag + build + notify + publish
+    runs-on: ubuntu-latest
+    outputs:
+      added: ${{ steps.crawl.outputs.added }}
+      pages_artifact: ${{ steps.pages_artifact.outputs.uploaded }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Restore previous DB from Releases (if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/publish_release.py \
+            --mode download \
+            --repo "${{ github.repository }}" \
+            --download-to data/articles.db || echo "No previous release; starting fresh"
+
+      - name: Crawl + tag (自動でタグ付け)
+        id: crawl
+        run: |
+          uv run python scripts/run_crawl.py --concurrency 5 2>&1 | tee /tmp/crawl.log
+          ADDED=$(grep -oE "追加=[0-9]+" /tmp/crawl.log | tail -1 | cut -d= -f2 || echo 0)
+          echo "added=${ADDED:-0}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Crawl complete::Added ${ADDED:-0} articles"
+
+      - name: Notify Discord (idempotent, skips if URL unset)
+        if: ${{ inputs.skip_discord != true }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          uv run python scripts/notify_discord.py --limit 20 || true
+
+      - name: Build pages
+        run: uv run python scripts/build_pages.py
+
+      - name: Publish DB snapshot to GH Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/publish_release.py \
+            --mode full \
+            --repo "${{ github.repository }}" \
+            --retention-days 7
+
+      - name: Configure Pages
+        if: ${{ inputs.skip_deploy != true }}
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        id: pages_artifact
+        if: ${{ inputs.skip_deploy != true }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs/_build
+
+      - name: Mark artifact uploaded
+        if: ${{ inputs.skip_deploy != true }}
+        run: echo "uploaded=true" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: crawl-and-build
+    if: ${{ inputs.skip_deploy != true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

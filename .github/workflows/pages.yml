@@ -1,16 +1,9 @@
 name: Deploy GitHub Pages
 
-# Phase 3 では手動トリガーと main 直 push を許可する.
-# Phase 7 で cron からの呼び出しを追加し、最新DBで自動再構築する予定.
+# Phase 7 以降は crawl.yml が cron で自動デプロイするため、
+# pages.yml は手動デプロイ (workflow_dispatch) のみ. 緊急時の即時再生成用に残す.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "src/qa_radar/publisher/**"
-      - "scripts/build_pages.py"
-      - "docs/style.css"
-      - ".github/workflows/pages.yml"
 
 permissions:
   contents: read

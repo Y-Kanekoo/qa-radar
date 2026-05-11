@@ -28,7 +28,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 4. Discord notifier | ⏳ |
 | 5. MCP server | ✅ |
 | 6. PyPI publish | ✅ |
-| 7. Cron automation | ⏳ |
+| 7. Cron automation | ✅ |
 | 8. LLM summarizer (optional) | ⏳ |
 
 ## Differentiation
