@@ -1,4 +1,4 @@
-# qa-radar ソースリスト（30本、Day1版）
+# qa-radar ソースリスト（40本）
 #
 # スキーマ:
 #   slug:       一意ID (snake_case 推奨、DB の sources.slug に保存)
@@ -351,3 +351,108 @@ sources:
     enabled: true
     fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 50 }
     license_note: arxiv公式RSS、メタデータCC0
+
+  # ============================================================
+  # Phase 9 追加: QAベンダー / コミュニティ拡充 (10)
+  # 全URLは 2026-05-24 時点で WebFetch にて 200 応答 + 直近活動を確認済み
+  # ============================================================
+
+  - slug: snyk-blog
+    name: Snyk Blog
+    feed_url: https://snyk.io/blog/feed/
+    site_url: https://snyk.io/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、セキュリティ/DAST観点、出所明示+リンクバックで集約可
+
+  - slug: testrail-blog
+    name: TestRail Blog
+    feed_url: https://www.testrail.com/blog/feed/
+    site_url: https://www.testrail.com/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、テスト管理観点、出所明示+リンクバックで集約可
+
+  - slug: maestro-blog
+    name: Maestro Blog
+    feed_url: https://maestro.dev/blog/rss.xml
+    site_url: https://maestro.dev/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、モバイルE2E観点、出所明示+リンクバックで集約可
+
+  - slug: grafana-blog
+    name: Grafana Labs Blog
+    feed_url: https://grafana.com/blog/index.xml
+    site_url: https://grafana.com/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、オブザーバビリティ/k6観点、出所明示+リンクバックで集約可
+
+  - slug: cypress-blog
+    name: Cypress Blog
+    feed_url: https://www.cypress.io/blog/rss.xml
+    site_url: https://www.cypress.io/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、E2Eチュートリアル観点、出所明示+リンクバックで集約可
+
+  - slug: semaphore-blog
+    name: Semaphore CI/CD Blog
+    feed_url: https://semaphore.io/blog/feed
+    site_url: https://semaphore.io/blog
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、CI/CD観点、出所明示+リンクバックで集約可
+
+  - slug: software-testing-magazine
+    name: Software Testing Magazine
+    feed_url: https://www.softwaretestingmagazine.com/feed/
+    site_url: https://www.softwaretestingmagazine.com
+    language: en
+    category: blog
+    enabled: true
+    fetch_policy: { min_interval_seconds: 21600, max_items_per_fetch: 25 }
+    license_note: 公開RSS、QA総合観点、出所明示+リンクバックで集約可
+
+  - slug: qiita-test-automation
+    name: Qiita タグ「テスト自動化」
+    feed_url: https://qiita.com/tags/%E3%83%86%E3%82%B9%E3%83%88%E8%87%AA%E5%8B%95%E5%8C%96/feed
+    site_url: https://qiita.com/tags/テスト自動化
+    language: ja
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: Qiita公開タグフィード、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  - slug: qiita-qa
+    name: Qiita タグ「QA」
+    feed_url: https://qiita.com/tags/qa/feed
+    site_url: https://qiita.com/tags/qa
+    language: ja
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: Qiita公開タグフィード、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  - slug: zenn-testing
+    name: Zenn トピック「testing」
+    feed_url: https://zenn.dev/topics/testing/feed
+    site_url: https://zenn.dev/topics/testing
+    language: ja
+    category: community
+    enabled: true
+    fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
+    license_note: Zenn公開トピックフィード、本文転載NG・タイトル+抜粋+リンクバックで運用

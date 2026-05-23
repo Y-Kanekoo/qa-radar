@@ -81,6 +81,9 @@ rules:
       - "performance testing"
       - neoload
       - artillery
+      - opentelemetry
+      - "観測性"
+      - "オブザーバビリティ"
       - "負荷テスト"
       - "性能テスト"
 
@@ -99,6 +102,8 @@ rules:
       - "vulnerability scan"
       - snyk
       - semgrep
+      - "api security"
+      - "supply chain"
       - "セキュリティテスト"
       - "脆弱性"
 
@@ -137,6 +142,9 @@ rules:
       - "prompt engineering"
       - deepeval
       - promptfoo
+      - langsmith
+      - "llm evaluation"
+      - "llm-as-a-judge"
       - "ai-augmented testing"
       - "model testing"
       - "ml testing"
