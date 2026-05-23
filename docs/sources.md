@@ -1,6 +1,6 @@
 # qa-radar ソース一覧と利用規約状況
 
-> 最終更新: 2026-05-09 / 全URLは WebFetch で200応答を実物確認済み
+> 最終更新: 2026-05-24 / 全URLは WebFetch で200応答を実物確認済み（計40本）
 
 ## 法的フレームワーク
 
@@ -85,6 +85,23 @@
 | Slug | ソース | 言語 | 規約 |
 |---|---|---|---|
 | `arxiv-cs-se` | [arxiv cs.SE](https://rss.arxiv.org/rss/cs.SE) | en | arxiv公式RSS、メタデータはCC0で再配信OK |
+
+### Phase 9 追加: QAベンダー / コミュニティ拡充（10）
+
+> 2026-05-24 時点で WebFetch にて200応答 + 直近活動を確認。
+
+| Slug | ソース | 言語 | 規約 |
+|---|---|---|---|
+| `snyk-blog` | [Snyk Blog](https://snyk.io/blog/feed/) | en | 公開RSS、セキュリティ/DAST観点、引用+リンクバック |
+| `testrail-blog` | [TestRail Blog](https://www.testrail.com/blog/feed/) | en | 公開RSS、テスト管理観点、引用+リンクバック |
+| `maestro-blog` | [Maestro Blog](https://maestro.dev/blog/rss.xml) | en | 公開RSS、モバイルE2E観点、引用+リンクバック |
+| `grafana-blog` | [Grafana Labs Blog](https://grafana.com/blog/index.xml) | en | 公開RSS、オブザーバビリティ/k6観点、引用+リンクバック |
+| `cypress-blog` | [Cypress Blog](https://www.cypress.io/blog/rss.xml) | en | 公開RSS、E2Eチュートリアル観点、引用+リンクバック |
+| `semaphore-blog` | [Semaphore CI/CD Blog](https://semaphore.io/blog/feed) | en | 公開RSS、CI/CD観点、引用+リンクバック |
+| `software-testing-magazine` | [Software Testing Magazine](https://www.softwaretestingmagazine.com/feed/) | en | 公開RSS、QA総合観点、引用+リンクバック |
+| `qiita-test-automation` | [Qiita タグ「テスト自動化」](https://qiita.com/tags/テスト自動化) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
+| `qiita-qa` | [Qiita タグ「QA」](https://qiita.com/tags/qa) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
+| `zenn-testing` | [Zenn トピック「testing」](https://zenn.dev/topics/testing) | ja | Zenn公開トピックフィード、本文転載NG・抜粋+リンクバック |
 
 ## 明示的にブロックしているソース
 
