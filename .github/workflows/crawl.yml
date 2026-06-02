@@ -90,7 +90,7 @@ jobs:
       - name: Upload Pages artifact
         id: pages_artifact
         if: ${{ inputs.skip_deploy != true }}
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./docs/_build
 
