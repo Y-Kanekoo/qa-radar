@@ -8,6 +8,7 @@ import pytest
 from qa_radar.publisher.discord import (
     DISCORD_DESCRIPTION_LIMIT,
     DISCORD_TITLE_LIMIT,
+    BatchSendResult,
     build_embed,
     build_payload,
     send_batch,
@@ -186,21 +187,27 @@ async def test_send_batch_all_success() -> None:
         counts["calls"] += 1
         return httpx.Response(204)
 
-    items = [_item(url=f"https://e.com/{i}", title=f"記事{i}") for i in range(3)]
+    items = [(i, _item(url=f"https://e.com/{i}", title=f"記事{i}")) for i in range(3)]
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        success, failure = await send_batch(
+        result = await send_batch(
             items,
             "https://discord/wh",
             rate_limit_delay=0,
             client=client,
         )
-    assert success == 3
-    assert failure == 0
+    assert result == BatchSendResult(succeeded_ids=[0, 1, 2], failed_ids=[])
+    assert result.success_count == 3
+    assert result.failure_count == 0
     assert counts["calls"] == 3
 
 
 @pytest.mark.asyncio
 async def test_send_batch_partial_failure() -> None:
+    """2番目だけ失敗した場合、結果は article_id 単位で正しく分かれる.
+
+    (先頭からsuccess件、という位置ベースの判定では
+    2番目の記事が誤って成功扱いされてしまう回帰を防ぐ)
+    """
     call_count = 0
 
     def handler(_req: httpx.Request) -> httpx.Response:
@@ -210,16 +217,22 @@ async def test_send_batch_partial_failure() -> None:
             return httpx.Response(400)
         return httpx.Response(204)
 
-    items = [_item(url=f"https://e.com/{i}") for i in range(3)]
+    items = [
+        (101, _item(url="https://e.com/0")),
+        (102, _item(url="https://e.com/1")),
+        (103, _item(url="https://e.com/2")),
+    ]
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        success, failure = await send_batch(
+        result = await send_batch(
             items,
             "https://discord/wh",
             rate_limit_delay=0,
             client=client,
         )
-    assert success == 2
-    assert failure == 1
+    assert result.succeeded_ids == [101, 103]
+    assert result.failed_ids == [102]
+    assert result.success_count == 2
+    assert result.failure_count == 1
 
 
 @pytest.mark.asyncio
@@ -227,11 +240,12 @@ async def test_send_batch_empty_list() -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _req: httpx.Response(204))
     ) as client:
-        success, failure = await send_batch(
+        result = await send_batch(
             [],
             "https://discord/wh",
             rate_limit_delay=0,
             client=client,
         )
-    assert success == 0
-    assert failure == 0
+    assert result == BatchSendResult(succeeded_ids=[], failed_ids=[])
+    assert result.success_count == 0
+    assert result.failure_count == 0

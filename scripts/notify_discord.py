@@ -89,16 +89,28 @@ def main(argv: list[str] | None = None) -> int:
                 log.info("[DRY] %s — %s", t.item.title, t.item.url)
             return 0
 
-        items = [t.item for t in targets]
-        success, failure = asyncio.run(send_batch(items, webhook, rate_limit_delay=args.rate_delay))
-        log.info("送信完了: success=%d failure=%d", success, failure)
+        items = [(t.article_id, t.item) for t in targets]
+        result = asyncio.run(send_batch(items, webhook, rate_limit_delay=args.rate_delay))
+        log.info(
+            "送信完了: success=%d failure=%d",
+            result.success_count,
+            result.failure_count,
+        )
 
-        # 成功した先頭から `success` 件を mark する
-        # (失敗時は後続を mark しないことで再試行可能性を残す)
-        for t in targets[:success]:
-            mark_notified(conn, t.article_id, channel=DISCORD_CHANNEL)
+        # 記事ID単位の成功結果のみ mark する
+        # (途中で失敗しても後続の送信は続行するため、先頭からN件という
+        #  位置ベースの判定はできない。失敗記事は mark せず再送対象として残す)
+        for article_id in result.succeeded_ids:
+            mark_notified(conn, article_id, channel=DISCORD_CHANNEL)
 
-        return 0 if failure == 0 else 2
+        if result.failed_ids:
+            log.warning(
+                "Discord 送信失敗: %d 件 (article_ids=%s)",
+                result.failure_count,
+                result.failed_ids,
+            )
+
+        return 0 if result.failure_count == 0 else 2
     finally:
         conn.close()
 
