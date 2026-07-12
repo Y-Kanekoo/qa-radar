@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
@@ -125,34 +126,66 @@ def _parse_retry_after(resp: httpx.Response) -> float:
         return 1.0
 
 
+@dataclass(frozen=True)
+class BatchSendResult:
+    """`send_batch` の結果. 記事ID (article_id) 単位で成功/失敗を保持する.
+
+    途中で一部が失敗しても後続の送信は継続するため、成功/失敗は
+    「先頭から何件目か」ではなく article_id で識別する必要がある.
+    集計件数が欲しい場合は `success_count` / `failure_count` を使う.
+    """
+
+    succeeded_ids: list[int]
+    failed_ids: list[int]
+
+    @property
+    def success_count(self) -> int:
+        """成功件数."""
+        return len(self.succeeded_ids)
+
+    @property
+    def failure_count(self) -> int:
+        """失敗件数."""
+        return len(self.failed_ids)
+
+
 async def send_batch(
-    items: list[FeedItem],
+    items: list[tuple[int, FeedItem]],
     webhook_url: str,
     *,
     rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
     client: httpx.AsyncClient | None = None,
-) -> tuple[int, int]:
+) -> BatchSendResult:
     """記事リストを順次 Discord に通知する.
 
     各送信間に `rate_limit_delay` 秒の sleep を挟む.
+    途中の1件が失敗しても後続の送信は続行する.
+
+    Args:
+        items: `(article_id, FeedItem)` のタプルのリスト. article_id は
+            呼び出し側 (DB) が採番した一意な識別子で、結果の対応付けに使う.
+        webhook_url: 送信先 webhook URL.
+        rate_limit_delay: 各送信間の待機秒数.
+        client: 使い回す httpx.AsyncClient. 省略時は内部で生成/破棄する.
 
     Returns:
-        (成功件数, 失敗件数).
+        article_id 単位の成功/失敗を保持する BatchSendResult.
+        (順序への依存を避けるため、件数のみの集計は返さない)
     """
-    success = 0
-    failure = 0
+    succeeded_ids: list[int] = []
+    failed_ids: list[int] = []
     own_client = client is None
     used = client if client is not None else httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
     try:
-        for i, item in enumerate(items):
+        for i, (article_id, item) in enumerate(items):
             if i > 0 and rate_limit_delay > 0:
                 await asyncio.sleep(rate_limit_delay)
             ok = await send_notification(item, webhook_url, client=used)
             if ok:
-                success += 1
+                succeeded_ids.append(article_id)
             else:
-                failure += 1
+                failed_ids.append(article_id)
     finally:
         if own_client:
             await used.aclose()
-    return (success, failure)
+    return BatchSendResult(succeeded_ids=succeeded_ids, failed_ids=failed_ids)

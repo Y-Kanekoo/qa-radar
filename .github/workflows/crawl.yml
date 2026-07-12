@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       added: ${{ steps.crawl.outputs.added }}
-      pages_artifact: ${{ steps.pages_artifact.outputs.uploaded }}
+      pages_artifact: ${{ steps.mark_uploaded.outputs.uploaded }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,6 +95,7 @@ jobs:
           path: ./docs/_build
 
       - name: Mark artifact uploaded
+        id: mark_uploaded
         if: ${{ inputs.skip_deploy != true }}
         run: echo "uploaded=true" >> "$GITHUB_OUTPUT"
 

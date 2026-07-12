@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**qa-radar** は QA・テスト自動化に関する 30 以上のソース（日本語 + 英語）から、
+**qa-radar** は QA・テスト自動化に関する 40 のソース（日本語 + 英語）から、
 記事・論文・ツールリリースを自動収集し、以下 3 つの形式で配信します:
 
 1. **公開 RSS フィード** — GitHub Pages でホスト
@@ -20,14 +20,15 @@
 | Phase | 状態 |
 |-------|------|
 | 0. リポジトリ初期化 | ✅ |
-| 1. クローラー + DB | 🚧 |
-| 2. タグ付け | ⏳ |
-| 3. RSS + Pages | ⏳ |
-| 4. Discord 通知 | ⏳ |
+| 1. クローラー + DB | ✅ |
+| 2. タグ付け | ✅ |
+| 3. RSS + Pages | ✅ |
+| 4. Discord 通知 | ✅ |
 | 5. MCP サーバー | ✅ |
 | 6. PyPI 公開 | ✅ |
 | 7. cron 自動化 | ✅ |
 | 8. LLM 要約 (任意) | ✅ |
+| 9. ソース拡充 (30→40本) | ✅ |
 
 ## 差別化ポイント
 
@@ -42,12 +43,15 @@
 
 ## 集約ソース
 
-30 ソース（カテゴリ別）:
+40 ソース（5 カテゴリ、ja 16 / en 24）:
 - **ツールリリース (9)**: Playwright / Cypress / Selenium / Jest / Vitest / pytest / Appium / k6 / Allure
-- **ブログ (16)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech Blog, Cybozu, Sansan ほか
-- **コミュニティ (3)**: Ministry of Testing, DEV.to (qa), Medium (test-automation)
+- **ブログ (20)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech Blog, Cybozu, Sansan,
+  KAKEHASHI, BASE, nihonbuson, kawaguti, goyoki, mybest (Zenn) ほか — Phase 9 で
+  Snyk, TestRail, Maestro, Grafana Labs, Cypress Blog, Semaphore, Software Testing Magazine を追加
+- **コミュニティ (6)**: Ministry of Testing, DEV.to (qa), Medium (test-automation) —
+  Phase 9 で Qiita（テスト自動化 / QA タグ）, Zenn（testing トピック）を追加
+- **note (4)**: 秋山浩一, tarappo, 湯本剛, QAを楽しむ者
 - **論文 (1)**: arxiv cs.SE
-- **個人ブログ・note (5+)**: 秋山浩一, tarappo, 湯本剛 ほか
 
 詳細は [config/sources.yaml](config/sources.yaml)、利用規約状況は
 [docs/sources.md](docs/sources.md) を参照。

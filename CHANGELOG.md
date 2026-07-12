@@ -6,11 +6,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-(No changes since v0.1.0)
+(No changes since v0.2.0)
+
+## [0.2.0] - 2026-07-10
+
+Phase 6〜9 の成果物を統合. PyPI Trusted Publishing ワークフローは実装済みだが、
+本バージョン時点でも `v*.*.*` タグの push は未実施のため **PyPI への実公開はまだ行われていない**
+(`uvx qa-radar` は次回の実タグ push 後に有効になる予定).
+
+### Added
+
+- **Phase 6**: PyPI 公開用 Trusted Publishing ワークフロー (`pypi.yml`、OIDC 経由、`v*.*.*` タグ push で TestPyPI → PyPI へ公開)
+- **Phase 7**: cron 自動化 (`crawl.yml`、毎日 9:00 / 15:00 / 21:00 JST に定期クロール) + DB スナップショットの GitHub Releases 配布 (`scripts/publish_release.py`)
+- **Phase 8**: LLM 要約 (`summarize_article` MCP tool、Claude Haiku 4.5、opt-in — `ANTHROPIC_API_KEY` env + `pip install qa-radar[ai]` が必要)
+- **Phase 9**: QA ソース 10 本追加 (30→40 本)
+  - 英語ブログ 7 本: Snyk Blog, TestRail Blog, Maestro Blog, Grafana Labs Blog, Cypress Blog, Semaphore CI/CD Blog, Software Testing Magazine
+  - 日本語コミュニティ 3 本: Qiita タグ「テスト自動化」「QA」, Zenn トピック「testing」
+  - 40 ソース内訳: tool 9 / blog 20 / community 6 / note 4 / paper 1 (language: ja 16 / en 24)
+
+### Fixed
+
+- `scripts/publish_release.py`: DB スナップショットの retention 判定を `createdAt`(タグが指すコミットのコミット日時)
+  から `publishedAt`(release の実際の公開日時)基準に修正。main への直近コミットから日数が経過していると
+  作成直後のスナップショットが同一実行内で即削除される不具合を解消し、あわせて最新 release は経過日数に
+  関わらず削除しない安全ガードを追加
+- `.github/workflows/crawl.yml`: `pages_artifact` の job output が実際にはセットされない不具合を修正
+  (該当ステップに `id: mark_uploaded` を付与し、output 参照を対応させた)
+- `src/qa_radar/publisher/discord.py` / `scripts/notify_discord.py`: Discord 通知の部分失敗時に
+  通知済みマークがずれる不具合を修正。`send_batch` が成功/失敗の件数のみを返す設計だったため、
+  `notify_discord.py` は「先頭 success 件を通知済みマークする」実装になっており、途中の1件が
+  失敗すると以降の記事の成否と位置がずれて誤マークされ得た。`send_batch` の戻り値を
+  article_id 単位の成否を保持する `BatchSendResult` に変更し、実際に成功した記事だけを
+  mark するよう修正
+
+### Changed
+
+- README.md / README.ja.md の Status 表を実態(Phase 0〜9 完了)に更新し、
+  `9. Source expansion (30→40)` / `9. ソース拡充 (30→40本)` の行を追加
+- README.md / README.ja.md のソース件数表記を「30+」から実数「40」に更新し、
+  カテゴリ内訳(tool 9 / blog 20 / community 6 / note 4 / paper 1)を実態に合わせて修正
+- CHANGELOG の `[0.1.0]` 節にあった「初回 PyPI リリース」という記載を実態に合わせて訂正
+  (下記参照。実際の初回公開はまだ行われていない)
 
 ## [0.1.0] - 2026-05-12
 
-初回 PyPI リリース. Phase 0〜5 の成果物を統合.
+Phase 0〜5 の成果物を統合. ※当初「初回 PyPI リリース」と記載していたが、実際には
+`v0.1.0` タグの push が行われず PyPI へは一度も公開されていなかった。PyPI への実公開は
+v0.2.0 以降で行う予定(訂正: 2026-07-10).
 
 ### Added
 
@@ -35,13 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `list_sources()`
 - `list_tags(min_count, limit)`
 
-### インストール (本リリース以降)
-
-```bash
-uvx qa-radar  # MCP サーバー起動 (stdio)
-```
-
 Claude Desktop / Claude Code への登録例は [README](README.md) を参照.
+(この時点では PyPI 未公開のため `uvx qa-radar` は動作しない。ローカルクローンからの
+`uv run python -m qa_radar` 起動が唯一の実用手段だった)
 
-[Unreleased]: https://github.com/Y-Kanekoo/qa-radar/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Y-Kanekoo/qa-radar/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Y-Kanekoo/qa-radar/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Y-Kanekoo/qa-radar/releases/tag/v0.1.0
