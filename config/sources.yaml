@@ -1,4 +1,4 @@
-# qa-radar ソースリスト（40本）
+# qa-radar ソースリスト（44本）
 #
 # スキーマ:
 #   slug:       一意ID (snake_case 推奨、DB の sources.slug に保存)
@@ -456,3 +456,49 @@ sources:
     enabled: true
     fetch_policy: { min_interval_seconds: 10800, max_items_per_fetch: 30 }
     license_note: Zenn公開トピックフィード、本文転載NG・タイトル+抜粋+リンクバックで運用
+
+  # ============================================================
+  # AI/LLM testing (Phase 11): GitHub Atom フィード
+  # 全URLは 2026-07-13 時点で WebFetch にて 200 応答 + 直近6ヶ月に3件以上の
+  # リリース活動を確認済み。ragas は直近リリースが2026-01-13で以降活動なしのため見送り。
+  # ============================================================
+
+  - slug: promptfoo-releases
+    name: promptfoo releases
+    feed_url: https://github.com/promptfoo/promptfoo/releases.atom
+    site_url: https://promptfoo.dev
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: deepeval-releases
+    name: DeepEval releases
+    feed_url: https://github.com/confident-ai/deepeval/releases.atom
+    site_url: https://deepeval.com
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: giskard-releases
+    name: Giskard releases
+    feed_url: https://github.com/Giskard-AI/giskard/releases.atom
+    site_url: https://www.giskard.ai
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation
+
+  - slug: langfuse-releases
+    name: Langfuse releases
+    feed_url: https://github.com/langfuse/langfuse/releases.atom
+    site_url: https://langfuse.com
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
+    license_note: GitHub public repo Atom; ToS permits aggregation

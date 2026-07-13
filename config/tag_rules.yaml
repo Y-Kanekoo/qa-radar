@@ -231,3 +231,8 @@ source_tags:
   appium-releases: [mobile, tooling]
   k6-releases: [performance, tooling]
   allure-releases: [tooling, process]  # テストレポート/管理 (process)
+  # Phase 11 追加: AI/LLMテスティングツール (タイトルがバージョン番号のみのため固定付与)
+  promptfoo-releases: [ai-testing, tooling]
+  deepeval-releases: [ai-testing, tooling]
+  giskard-releases: [ai-testing, tooling]
+  langfuse-releases: [ai-testing, tooling]

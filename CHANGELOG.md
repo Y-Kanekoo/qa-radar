@@ -6,7 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-(No changes since v0.2.0)
+### Added
+
+- **Phase 11**: AI/LLM testing ソース 4 本追加 (40→44 本)。差別化タグ `ai-testing`
+  に専門ソースがなかった問題を解消
+  - GitHub Releases Atom (tool カテゴリ): promptfoo, DeepEval (confident-ai), Giskard, Langfuse
+  - `config/tag_rules.yaml` の `source_tags` に各ソースを `[ai-testing, tooling]` で固定付与
+  - `ragas` (explodinggradients/ragas) は直近リリースが2026-01-13で以降6ヶ月活動なしのため見送り
+  - Autify ブログ日本語版はRSSフィード自体が見つからず(サイトが403を返しegressポリシーでも
+    ブロック対象)、見送り
+  - 44 ソース内訳: tool 13 / blog 20 / community 6 / note 4 / paper 1 (language: ja 16 / en 28)
 
 ## [0.2.0] - 2026-07-10
 

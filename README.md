@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**qa-radar** collects articles, papers, and tool releases from 40 QA/testing
+**qa-radar** collects articles, papers, and tool releases from 44 QA/testing
 sources (Japanese + English) and serves them through three channels:
 
 1. **Public RSS feed** — hosted on GitHub Pages
@@ -31,6 +31,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 7. Cron automation | ✅ |
 | 8. LLM summarizer (optional) | ✅ |
 | 9. Source expansion (30→40) | ✅ |
+| 11. AI/LLM testing sources (40→44) | ✅ |
 
 ## Differentiation
 
@@ -40,13 +41,14 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | Multi-language (JP+EN) | ✅ | JP only | depends |
 | AI/ML tagging | ✅ rule-based + opt LLM | ❌ | ❌ |
 | Full-text search (FTS5) | ✅ | ❌ | ❌ |
-| Tool releases (9 repos) | ✅ | ❌ | ❌ |
+| Tool releases (13 repos) | ✅ | ❌ | ❌ |
 | Academic papers (arxiv) | ✅ | ❌ | ❌ |
 
 ## Sources
 
-40 verified sources across 5 categories (ja 16 / en 24):
-- **Tools (9)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure
+44 verified sources across 5 categories (ja 16 / en 28):
+- **Tools (13)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure —
+  Phase 11 added AI/LLM testing tools: promptfoo, DeepEval, Giskard, Langfuse
 - **Blogs (20)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech, Cybozu, Sansan,
   KAKEHASHI, BASE, nihonbuson, kawaguti, goyoki, mybest (Zenn), etc. — Phase 9 added
   Snyk, TestRail, Maestro, Grafana Labs, Cypress Blog, Semaphore, Software Testing Magazine
