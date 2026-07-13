@@ -14,10 +14,10 @@ from qa_radar.sources import (
 )
 
 
-def test_loads_40_sources_from_real_yaml() -> None:
-    """実際の config/sources.yaml が 40 ソースで正常パース."""
+def test_loads_44_sources_from_real_yaml() -> None:
+    """実際の config/sources.yaml が 44 ソースで正常パース."""
     sources = load_sources()
-    assert len(sources) == 40
+    assert len(sources) == 44
 
 
 def test_all_sources_have_required_fields() -> None:
@@ -55,6 +55,9 @@ def test_critical_sources_present() -> None:
         "snyk-blog",
         "testrail-blog",
         "qiita-test-automation",
+        # Phase 11 追加分
+        "promptfoo-releases",
+        "langfuse-releases",
     }
     missing = must - slugs
     assert not missing, f"必須ソースが欠落: {missing}"
