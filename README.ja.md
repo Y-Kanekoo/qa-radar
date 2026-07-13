@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**qa-radar** は QA・テスト自動化に関する 40 のソース（日本語 + 英語）から、
+**qa-radar** は QA・テスト自動化に関する 44 のソース（日本語 + 英語）から、
 記事・論文・ツールリリースを自動収集し、以下 3 つの形式で配信します:
 
 1. **公開 RSS フィード** — GitHub Pages でホスト
@@ -29,6 +29,7 @@
 | 7. cron 自動化 | ✅ |
 | 8. LLM 要約 (任意) | ✅ |
 | 9. ソース拡充 (30→40本) | ✅ |
+| 11. AI/LLMテスティングソース追加 (40→44本) | ✅ |
 
 ## 差別化ポイント
 
@@ -38,13 +39,14 @@
 | 多言語対応（日本語+英語） | ✅ | 日本語のみ | 依存 |
 | AI/ML タグ付け | ✅ ルールベース + LLM任意 | ❌ | ❌ |
 | 全文検索 (FTS5) | ✅ | ❌ | ❌ |
-| ツールリリース統合（9リポジトリ） | ✅ | ❌ | ❌ |
+| ツールリリース統合（13リポジトリ） | ✅ | ❌ | ❌ |
 | 学術論文（arxiv） | ✅ | ❌ | ❌ |
 
 ## 集約ソース
 
-40 ソース（5 カテゴリ、ja 16 / en 24）:
-- **ツールリリース (9)**: Playwright / Cypress / Selenium / Jest / Vitest / pytest / Appium / k6 / Allure
+44 ソース（5 カテゴリ、ja 16 / en 28）:
+- **ツールリリース (13)**: Playwright / Cypress / Selenium / Jest / Vitest / pytest / Appium / k6 / Allure —
+  Phase 11 で AI/LLM テスティングツール promptfoo / DeepEval / Giskard / Langfuse を追加
 - **ブログ (20)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech Blog, Cybozu, Sansan,
   KAKEHASHI, BASE, nihonbuson, kawaguti, goyoki, mybest (Zenn) ほか — Phase 9 で
   Snyk, TestRail, Maestro, Grafana Labs, Cypress Blog, Semaphore, Software Testing Magazine を追加

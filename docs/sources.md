@@ -1,6 +1,6 @@
 # qa-radar ソース一覧と利用規約状況
 
-> 最終更新: 2026-05-24 / 全URLは WebFetch で200応答を実物確認済み（計40本）
+> 最終更新: 2026-07-13 / 全URLは WebFetch で200応答を実物確認済み（計44本）
 
 ## 法的フレームワーク
 
@@ -102,6 +102,20 @@
 | `qiita-test-automation` | [Qiita タグ「テスト自動化」](https://qiita.com/tags/テスト自動化) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
 | `qiita-qa` | [Qiita タグ「QA」](https://qiita.com/tags/qa) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
 | `zenn-testing` | [Zenn トピック「testing」](https://zenn.dev/topics/testing) | ja | Zenn公開トピックフィード、本文転載NG・抜粋+リンクバック |
+
+### Phase 11 追加: AI/LLM testing（4）
+
+> 2026-07-13 時点で WebFetch にて200応答 + 直近6ヶ月に3件以上のリリース活動を確認。
+> `ragas` (explodinggradients/ragas) は直近リリースが2026-01-13で以降6ヶ月活動なしのため見送り。
+> Autify ブログ日本語版はRSSフィードが確認できず（プロキシのegressポリシーでホスト全体がブロックされ、
+> WebFetch でも403 Forbidden）、見送り。
+
+| Slug | ソース | 言語 | 規約 |
+|---|---|---|---|
+| `promptfoo-releases` | [promptfoo](https://github.com/promptfoo/promptfoo/releases.atom) | en | GitHub ToS、再配信OK |
+| `deepeval-releases` | [DeepEval](https://github.com/confident-ai/deepeval/releases.atom) | en | GitHub ToS、再配信OK |
+| `giskard-releases` | [Giskard](https://github.com/Giskard-AI/giskard/releases.atom) | en | GitHub ToS、再配信OK |
+| `langfuse-releases` | [Langfuse](https://github.com/langfuse/langfuse/releases.atom) | en | GitHub ToS、再配信OK |
 
 ## 明示的にブロックしているソース
 
