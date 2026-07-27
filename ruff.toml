@@ -25,6 +25,7 @@ ignore = [
 [lint.per-file-ignores]
 "tests/*" = ["B011"]
 "scripts/*" = ["T201"] # print使用許可
+"learning-lab/*" = ["N802"] # do_GET 等: BaseHTTPRequestHandler の命名規約に従う
 
 [lint.isort]
 known-first-party = ["qa_radar"]

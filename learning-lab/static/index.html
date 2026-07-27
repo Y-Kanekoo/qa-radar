@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<!--
+  Web Learning Lab — 画面の「骨組み」を作るファイル (HTML)
+
+  Webページは3人チームで作られている:
+    ・index.html (このファイル) … 骨組み。何がどこにあるか
+    ・style.css               … 見た目。色・配置・大きさ
+    ・app.js                  … 動き。クリックへの反応・サーバーとの通信
+
+  ブラウザは最初にこの HTML を受け取り、<link> と <script> を見つけて
+  CSS と JS を「追加でサーバーに取りに行く」。その様子も開発者ツール(F12)で見られる。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Learning Lab — Webアプリの仕組みを透視して学ぶ</title>
+  <!-- CSS ファイルの読み込み指示。ブラウザはこれを見て /static/style.css を取りに行く -->
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ═══════════════ ヘッダー (常に表示) ═══════════════ -->
+  <header class="site-header">
+    <h1>🔬 Web Learning Lab</h1>
+    <p class="tagline">動いているWebアプリを透視(X-Ray)して、仕組みをまるごと理解しよう</p>
+    <nav class="view-nav">
+      <button id="nav-lab" class="nav-btn active" type="button">🧪 実験室</button>
+      <button id="nav-textbook" class="nav-btn" type="button">📖 教科書</button>
+      <label class="slow-toggle" title="通信の旅をゆっくり再生します">
+        <input type="checkbox" id="slow-mode"> 🐢 じっくりモード
+      </label>
+    </nav>
+  </header>
+
+  <!-- ═══════════════ 実験室ビュー ═══════════════ -->
+  <main id="view-lab">
+
+    <section class="intro-banner">
+      <strong>あそびかた:</strong> 左のTODOアプリを操作すると、そのとき裏側で起きたことが
+      右の <b>X-Rayパネル</b> にすべて表示されます。まずは何かひとつ追加してみてください。
+      表示される通信・SQL・処理時間は演出ではなく<b>すべて実測値</b>です。
+    </section>
+
+    <div class="lab-grid">
+
+      <!-- ─────── 左: 学習の題材となる TODO アプリ ─────── -->
+      <section class="panel todo-panel">
+        <h2>📝 TODOアプリ <span class="panel-note">(実験の題材)</span></h2>
+
+        <!-- 追加フォーム。submit すると app.js が POST /api/todos を送る -->
+        <form id="todo-form" autocomplete="off">
+          <input type="text" id="todo-input" placeholder="やることを入力 (例: 牛乳を買う)"
+                 maxlength="100">
+          <button type="submit">追加</button>
+        </form>
+
+        <!-- TODO の一覧。中身は app.js が JavaScript で組み立てる -->
+        <ul id="todo-list" aria-live="polite"></ul>
+        <p id="todo-empty" class="todo-empty">まだTODOがありません。上の欄から追加してみよう!</p>
+
+        <!-- エラーを意図的に起こして学ぶコーナー -->
+        <div class="experiment-corner">
+          <h3>💥 実験コーナー — わざと失敗してみる</h3>
+          <p>エラーのときサーバーがどう応答するかを観察しよう。</p>
+          <button id="exp-empty-title" type="button">空のタイトルを送信する (→ 400?)</button>
+          <button id="exp-missing-id" type="button">存在しないID 99999 を削除する (→ 404?)</button>
+        </div>
+      </section>
+
+      <!-- ─────── 右: X-Ray パネル (可視化) ─────── -->
+      <section class="panel xray-panel">
+        <h2>🩻 X-Rayパネル <span class="panel-note">(裏側で起きたこと)</span></h2>
+
+        <!-- 旅の地図: リクエストの一生を6ステージで表す -->
+        <div class="flow-map" id="flow-map">
+          <div class="stage" data-stage="1"><span class="stage-icon">🖥</span><span class="stage-label">JavaScript<br>が動く</span></div>
+          <div class="flow-arrow">→</div>
+          <div class="stage" data-stage="2"><span class="stage-icon">📮</span><span class="stage-label">リクエスト<br>送信</span></div>
+          <div class="flow-arrow">→</div>
+          <div class="stage" data-stage="3"><span class="stage-icon">🖧</span><span class="stage-label">サーバー<br>が処理</span></div>
+          <div class="flow-arrow">→</div>
+          <div class="stage" data-stage="4"><span class="stage-icon">🗄</span><span class="stage-label">SQL実行<br>(DB)</span></div>
+          <div class="flow-arrow">→</div>
+          <div class="stage" data-stage="5"><span class="stage-icon">📬</span><span class="stage-label">レスポンス<br>返送</span></div>
+          <div class="flow-arrow">→</div>
+          <div class="stage" data-stage="6"><span class="stage-icon">🎨</span><span class="stage-label">画面を<br>更新</span></div>
+        </div>
+
+        <!-- ナレーション: いま何が起きているかの解説文 -->
+        <div class="narration" id="narration">
+          左のTODOアプリを操作すると、ここに解説が流れます。
+        </div>
+
+        <!-- 詳細タブ -->
+        <div class="xray-tabs">
+          <button class="tab-btn active" data-tab="request" type="button">📤 リクエスト</button>
+          <button class="tab-btn" data-tab="response" type="button">📥 レスポンス</button>
+          <button class="tab-btn" data-tab="server" type="button">⚙️ サーバー内部</button>
+          <button class="tab-btn" data-tab="history" type="button">📜 履歴</button>
+        </div>
+
+        <div class="tab-body" id="tab-request">
+          <p class="tab-hint">ブラウザがサーバーへ送った「注文書」。<b>①リクエスト行 ②ヘッダー ③空行 ④ボディ</b> の順で並ぶただのテキスト。</p>
+          <pre class="http-raw" id="request-raw">(まだ通信していません)</pre>
+        </div>
+
+        <div class="tab-body hidden" id="tab-response">
+          <p class="tab-hint">サーバーから返ってきた「返事」。<b>①ステータス行 ②ヘッダー ③空行 ④ボディ(JSON)</b>。</p>
+          <pre class="http-raw" id="response-raw">(まだ通信していません)</pre>
+        </div>
+
+        <div class="tab-body hidden" id="tab-server">
+          <p class="tab-hint">サーバー(server.py)が内部で踏んだ処理の記録。<b>at</b> はリクエスト受付からの経過ミリ秒 (実測)。</p>
+          <div id="server-steps">(まだ通信していません)</div>
+          <h4 class="sql-heading">🗄 実行されたSQL</h4>
+          <div id="sql-list">(なし)</div>
+        </div>
+
+        <div class="tab-body hidden" id="tab-history">
+          <p class="tab-hint">このページで発生した通信の一覧。クリックすると内容を再表示します。</p>
+          <ul id="history-list"></ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ═══════════════ 教科書ビュー ═══════════════ -->
+  <main id="view-textbook" class="hidden">
+    <div class="textbook">
+
+      <nav class="toc">
+        <strong>もくじ</strong>
+        <ol>
+          <li><a href="#ch1">Webアプリケーションとは</a></li>
+          <li><a href="#ch2">URLのしくみ</a></li>
+          <li><a href="#ch3">HTTP — リクエストとレスポンス</a></li>
+          <li><a href="#ch4">HTTPメソッドとステータスコード</a></li>
+          <li><a href="#ch5">フロントエンドの3点セット</a></li>
+          <li><a href="#ch6">バックエンド(サーバー)の仕事</a></li>
+          <li><a href="#ch7">データベースとSQL</a></li>
+          <li><a href="#ch8">1回の操作を通しで追う</a></li>
+          <li><a href="#ch9">開発者ツールで本物を覗く</a></li>
+          <li><a href="#ch10">このアプリ自身の構成</a></li>
+        </ol>
+      </nav>
+
+      <section class="chapter" id="ch1">
+        <h2>第1章 Webアプリケーションとは</h2>
+        <p>
+          Webアプリケーションとは、<b>ブラウザ(クライアント)</b>と<b>サーバー</b>という2台の
+          コンピューター(プログラム)が、<b>HTTP</b>という共通言語で会話しながら動く仕組みです。
+          あなたのスマホでSNSを見るのも、ネットショッピングも、全部この形です。
+        </p>
+        <svg viewBox="0 0 640 180" class="diagram" role="img" aria-label="クライアントとサーバーの関係図">
+          <rect x="20" y="40" width="170" height="100" rx="12" class="d-box d-client"/>
+          <text x="105" y="75" class="d-title">🖥 クライアント</text>
+          <text x="105" y="100" class="d-sub">あなたのブラウザ</text>
+          <text x="105" y="120" class="d-sub">「見たい」「保存して」と頼む側</text>
+          <rect x="450" y="40" width="170" height="100" rx="12" class="d-box d-server"/>
+          <text x="535" y="75" class="d-title">🖧 サーバー</text>
+          <text x="535" y="100" class="d-sub">どこかのコンピューター</text>
+          <text x="535" y="120" class="d-sub">頼まれて応える側</text>
+          <line x1="200" y1="70" x2="440" y2="70" class="d-arrow"/>
+          <polygon points="440,70 428,64 428,76" class="d-arrowhead"/>
+          <text x="320" y="60" class="d-label">リクエスト (お願い)</text>
+          <line x1="440" y1="115" x2="200" y2="115" class="d-arrow"/>
+          <polygon points="200,115 212,109 212,121" class="d-arrowhead"/>
+          <text x="320" y="140" class="d-label">レスポンス (返事)</text>
+        </svg>
+        <p>
+          大事な原則: <b>会話は必ずクライアントから始まる</b>こと、そして
+          <b>1回のリクエストには必ず1回のレスポンスが返る</b>ことです。
+          実験室のX-Rayパネルで見た「往復」がまさにこれです。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch2">
+        <h2>第2章 URLのしくみ</h2>
+        <p>URLは「どのサーバーの、どの資源が欲しいか」を表す住所です。分解してみましょう。</p>
+        <svg viewBox="0 0 640 150" class="diagram" role="img" aria-label="URLの構造図">
+          <text x="30" y="45" class="d-url">http://</text>
+          <text x="128" y="45" class="d-url d-url-host">localhost</text>
+          <text x="255" y="45" class="d-url">:</text>
+          <text x="268" y="45" class="d-url d-url-port">8000</text>
+          <text x="330" y="45" class="d-url d-url-path">/api/todos</text>
+          <line x1="30" y1="60" x2="115" y2="60" class="d-brace"/>
+          <text x="72" y="85" class="d-label">スキーム<tspan x="72" dy="16">(通信のルール)</tspan></text>
+          <line x1="128" y1="60" x2="250" y2="60" class="d-brace"/>
+          <text x="189" y="85" class="d-label">ホスト<tspan x="189" dy="16">(どのコンピューター?)</tspan></text>
+          <line x1="268" y1="60" x2="322" y2="60" class="d-brace"/>
+          <text x="295" y="85" class="d-label">ポート<tspan x="295" dy="16">(どの窓口?)</tspan></text>
+          <line x1="330" y1="60" x2="465" y2="60" class="d-brace"/>
+          <text x="397" y="85" class="d-label">パス<tspan x="397" dy="16">(何が欲しい?)</tspan></text>
+        </svg>
+        <ul>
+          <li><b>localhost</b> は「このコンピューター自身」を指す特別な名前。本アプリはあなたのPCの中でサーバーが動いています。</li>
+          <li>普段見る <code>https://example.com/...</code> では、<b>DNS</b>という仕組みがホスト名を IPアドレス(コンピューターの番号)に変換してくれます。</li>
+          <li>ポート 8000 は「そのコンピューターの8000番窓口」。1台のPCで複数のサーバーが動けるのは窓口番号があるからです。</li>
+        </ul>
+      </section>
+
+      <section class="chapter" id="ch3">
+        <h2>第3章 HTTP — リクエストとレスポンス</h2>
+        <p>
+          HTTPの正体は、決まった書式の<b>ただのテキスト</b>です。X-Rayパネルの
+          「📤リクエスト」「📥レスポンス」タブに出ていたものが、ほぼそのまま実物です。
+        </p>
+        <div class="http-anatomy">
+          <div>
+            <h4>リクエストの構造</h4>
+<pre class="http-raw">POST /api/todos HTTP/1.1   ← ①リクエスト行 (何をどこに)
+Host: localhost:8000        ← ②ヘッダー (メモ書き)
+Content-Type: application/json
+                            ← ③空行 (ここまでがヘッダーの合図)
+{"title": "牛乳を買う"}      ← ④ボディ (送るデータ本体)</pre>
+          </div>
+          <div>
+            <h4>レスポンスの構造</h4>
+<pre class="http-raw">HTTP/1.1 201 Created        ← ①ステータス行 (結果)
+Content-Type: application/json
+Content-Length: 312         ← ②ヘッダー
+                            ← ③空行
+{"ok": true, "data": {...}} ← ④ボディ (返すデータ本体)</pre>
+          </div>
+        </div>
+        <p>
+          ボディに使われている <code>{"title": "牛乳を買う"}</code> という書き方が
+          <b>JSON</b>(JavaScript Object Notation)。プログラム同士がデータを渡し合うときの、
+          現在もっとも標準的な形式です。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch4">
+        <h2>第4章 HTTPメソッドとステータスコード</h2>
+        <p><b>メソッド</b>は「リクエストの動詞」。このアプリでは操作とメソッドが1対1に対応しています。</p>
+        <table>
+          <thead><tr><th>メソッド</th><th>意味</th><th>このアプリでの例</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET</code></td><td>ちょうだい (取得)</td><td>TODO一覧の読み込み</td></tr>
+            <tr><td><code>POST</code></td><td>新しく作って (作成)</td><td>TODOの追加</td></tr>
+            <tr><td><code>PATCH</code></td><td>一部を変えて (部分更新)</td><td>完了チェックの切り替え</td></tr>
+            <tr><td><code>DELETE</code></td><td>消して (削除)</td><td>TODOの削除</td></tr>
+          </tbody>
+        </table>
+        <p><b>ステータスコード</b>は「レスポンスの結果を表す3桁の数字」。先頭の数字でグループ分けされています。</p>
+        <table>
+          <thead><tr><th>コード</th><th>意味</th><th>このアプリで体験する場面</th></tr></thead>
+          <tbody>
+            <tr><td><code>200 OK</code></td><td>成功</td><td>一覧取得・更新・削除の成功</td></tr>
+            <tr><td><code>201 Created</code></td><td>作成に成功</td><td>TODO追加の成功</td></tr>
+            <tr><td><code>400 Bad Request</code></td><td>あなたの送信内容が変 (4xx=クライアント側の問題)</td><td>💥実験: 空タイトルを送る</td></tr>
+            <tr><td><code>404 Not Found</code></td><td>そんなものは無い</td><td>💥実験: 存在しないIDを削除</td></tr>
+            <tr><td><code>500 Internal Server Error</code></td><td>サーバー側の事故 (5xx=サーバー側の問題)</td><td>server.py にバグを仕込むと見られる</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="chapter" id="ch5">
+        <h2>第5章 フロントエンドの3点セット (HTML / CSS / JS)</h2>
+        <p>ブラウザ側で動くものを<b>フロントエンド</b>と呼びます。役割の違う3種類のファイルで作ります。</p>
+        <table>
+          <thead><tr><th>ファイル</th><th>役割</th><th>たとえるなら</th></tr></thead>
+          <tbody>
+            <tr><td><code>index.html</code></td><td>構造 — 何がどこにあるか</td><td>家の骨組み</td></tr>
+            <tr><td><code>style.css</code></td><td>見た目 — 色・配置・大きさ</td><td>内装・塗装</td></tr>
+            <tr><td><code>app.js</code></td><td>動き — クリックに反応し、サーバーと通信</td><td>電気配線と家電</td></tr>
+          </tbody>
+        </table>
+        <p>
+          特に重要なのが JavaScript の <code>fetch()</code> です。
+          昔のWebは「何かするたびページ全体を再読込」していましたが、fetch を使うと
+          <b>ページを開いたまま裏でHTTP通信し、画面の必要な部分だけ描き換え</b>られます。
+          TODOを追加したとき画面がチカッと白くならないのはこのためです。
+        </p>
+        <p>
+          もうひとつの鍵は <b>DOM</b>。ブラウザはHTMLを「部品の木構造」としてメモリに持っていて、
+          JavaScriptから <code>document.createElement("li")</code> のように部品を追加・削除できます。
+          このアプリのTODO一覧は、サーバーから来たJSONをもとに app.js が組み立てています。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch6">
+        <h2>第6章 バックエンド(サーバー)の仕事</h2>
+        <p>
+          サーバー側のプログラムを<b>バックエンド</b>と呼びます。本アプリでは
+          <code>server.py</code> の約400行がすべてです。仕事は主に4つ:
+        </p>
+        <ol>
+          <li><b>ルーティング</b> — 「URLとメソッド」を見て、担当する関数を決める対応表引き。
+            <code>POST /api/todos → create_todo()</code> のように。</li>
+          <li><b>バリデーション</b> — 受け取ったデータが正しいか検査する。フロント側でも検査するが、
+            サーバー側の検査は省略できない (ブラウザを介さず curl などで直接リクエストを送れてしまうから)。</li>
+          <li><b>ビジネスロジック</b> — アプリ固有の処理。DBへの読み書きの指揮。</li>
+          <li><b>レスポンス生成</b> — 結果をJSONにまとめ、適切なステータスコードで返す。</li>
+        </ol>
+        <p>
+          X-Rayパネルの「⚙️サーバー内部」タブは、この4つの仕事がリクエストのたびに
+          順番に実行されている記録そのものです。FlaskやFastAPIといった
+          「Webフレームワーク」は、この定型作業を楽にしてくれる道具にすぎません。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch7">
+        <h2>第7章 データベースとSQL</h2>
+        <p>
+          サーバーのプログラムは再起動すると変数の中身を忘れます。そこでデータは
+          <b>データベース(DB)</b>に永続保存します。本アプリは<b>SQLite</b>という
+          「1個のファイルがそのままDBになる」軽量DBを使っています (<code>data/todos.db</code>)。
+        </p>
+        <p>DBの中は表(テーブル)の形をしています。TODOはこう保存されています:</p>
+        <table>
+          <thead><tr><th>id</th><th>title</th><th>done</th><th>created_at</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>牛乳を買う</td><td>0</td><td>2026-07-27 03:00:00</td></tr>
+            <tr><td>2</td><td>本を返す</td><td>1</td><td>2026-07-27 03:05:00</td></tr>
+          </tbody>
+        </table>
+        <p>DBとの会話に使う言語が<b>SQL</b>。基本の4文がTODOの4操作にそのまま対応します。</p>
+<pre class="http-raw">SELECT id, title, done, created_at FROM todos ORDER BY id;  -- 読む   (GET)
+INSERT INTO todos (title) VALUES (?);                       -- 作る   (POST)
+UPDATE todos SET done = ? WHERE id = ?;                     -- 変える (PATCH)
+DELETE FROM todos WHERE id = ?;                             -- 消す   (DELETE)</pre>
+        <p>
+          ⚠️ <code>?</code> は<b>プレースホルダー</b>。ユーザー入力をSQL文字列に直接つなぐと、
+          入力に紛れ込ませたSQLが実行されてしまう「<b>SQLインジェクション</b>」という
+          攻撃を受けます。必ず <code>?</code> 経由で値を渡す — これはWeb開発の鉄則です。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch8">
+        <h2>第8章 1回の操作を通しで追う</h2>
+        <p>「牛乳を買う」を追加したときに起きること全部を、時系列で並べます。</p>
+        <ol class="timeline">
+          <li><b>🖥 ブラウザ:</b> [追加]ボタンで form の submit イベントが発生。app.js が入力値を取り出し、<code>fetch("/api/todos", {method:"POST", ...})</code> を実行</li>
+          <li><b>📮 通信:</b> HTTPリクエスト(テキスト)がTCPという通信路に乗ってサーバーへ届く</li>
+          <li><b>🖧 サーバー:</b> ルーティング表から <code>create_todo()</code> を選ぶ → JSONボディを解析 → タイトルが1〜100文字か検査</li>
+          <li><b>🗄 DB:</b> <code>INSERT INTO todos (title) VALUES (?)</code> で1行追加。新しい id が採番される</li>
+          <li><b>🖧 サーバー:</b> 追加した行を読み直し、debug記録と一緒にJSON化。<code>201 Created</code> で送信</li>
+          <li><b>📬 通信:</b> HTTPレスポンスがブラウザへ戻る</li>
+          <li><b>🖥 ブラウザ:</b> app.js がJSONを受け取り、<code>&lt;li&gt;</code> 要素を作って一覧に追加。ページ遷移なしで画面が更新される</li>
+        </ol>
+        <p>
+          実験室の「旅の地図」はこの流れの再現です。じっくりモードをONにして、
+          もう一度追加操作をしながら1ステージずつ確かめてみてください。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch9">
+        <h2>第9章 開発者ツールで本物を覗く</h2>
+        <p>
+          X-Rayパネルは学習用に整形した表示ですが、ブラウザには本物の観察装置
+          「<b>開発者ツール</b>」が最初から入っています。<b>F12</b>キー
+          (Macは <kbd>Cmd+Option+I</kbd>) で開けます。
+        </p>
+        <ul>
+          <li><b>Network タブ</b> — このページの全HTTP通信が見える。TODOを追加して、<code>todos</code> という行をクリックし、Headers / Payload / Response を見比べよう。X-Rayパネルと同じ内容のはず</li>
+          <li><b>Elements タブ</b> — いまブラウザが持っているDOM(HTMLの木)。TODOを追加すると <code>&lt;li&gt;</code> がその場で増える様子が見える</li>
+          <li><b>Console タブ</b> — JavaScriptの実行環境。<code>fetch("/api/todos").then(r =&gt; r.json()).then(console.log)</code> と打てば、自分の手でAPIを呼べる</li>
+        </ul>
+        <p>
+          「X-Rayパネルで仕組みを掴む → 開発者ツールで本物を確認する」の往復が、
+          このアプリの卒業条件です。
+        </p>
+      </section>
+
+      <section class="chapter" id="ch10">
+        <h2>第10章 このアプリ自身の構成</h2>
+        <p>いま使っているこのアプリも、学んだ通りの部品でできています。</p>
+<pre class="http-raw">learning-lab/
+├── server.py          ← バックエンド (Python・約400行・全行コメント付き)
+├── static/
+│   ├── index.html     ← 骨組み (この教科書の本文もここ)
+│   ├── style.css      ← 見た目
+│   └── app.js         ← 動き (fetch通信・X-Ray描画)
+└── data/todos.db      ← データベース (SQLiteファイル・初回起動時に自動生成)</pre>
+        <p>
+          仕上げの学習として、ぜひ<b>コードを読んで・壊して・直して</b>ください。おすすめ:
+        </p>
+        <ul>
+          <li><code>server.py</code> の <code>TITLE_MAX_LEN</code> を 10 に変えて再起動 → 11文字で400になることを確認</li>
+          <li><code>app.js</code> の一覧描画を書き換えて、完了済みTODOに取り消し線以外の装飾を足す</li>
+          <li>新しいAPI <code>GET /api/todos/count</code> を自分で追加してみる (ルーティング表に1行+関数1つ)</li>
+        </ul>
+        <p>設計の全体像は <code>DESIGN.md</code>、発展課題は <code>README.md</code> にあります。</p>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- JS ファイルの読み込み。body の最後に置くのは「骨組みが揃ってから動きを付ける」ため -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

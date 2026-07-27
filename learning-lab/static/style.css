@@ -1,0 +1,388 @@
+/*
+  Web Learning Lab — 見た目を担当するファイル (CSS)
+
+  CSS は「セレクター { プロパティ: 値; }」の繰り返しでできている。
+    .panel { border-radius: 12px; }
+    └─────┘  └────────────────────┘
+    どの要素に   どんな見た目を適用するか
+
+  ここを書き換えて保存し、ブラウザをリロードすれば即反映される。
+  色を変える・角丸を変えるなど、自由に実験してほしい。
+*/
+
+/* ===== 全体の土台 ===== */
+
+:root {
+  /* CSS変数: よく使う色に名前を付けておくと一括変更できる */
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --ink: #1f2937;
+  --sub: #6b7280;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --ok: #059669;
+  --warn: #d97706;
+  --danger: #dc2626;
+  --line: #e5e7eb;
+  --code-bg: #0f172a;
+  --code-ink: #e2e8f0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.7;
+}
+
+/* ===== ヘッダー ===== */
+
+.site-header {
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: #fff;
+  padding: 20px 24px 14px;
+}
+
+.site-header h1 { margin: 0; font-size: 1.5rem; }
+.tagline { margin: 4px 0 12px; opacity: 0.85; font-size: 0.9rem; }
+
+.view-nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.nav-btn {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #fff;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.nav-btn.active { background: #fff; color: var(--accent); font-weight: 700; }
+
+.slow-toggle {
+  margin-left: auto;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ===== レイアウト ===== */
+
+main { max-width: 1180px; margin: 0 auto; padding: 18px; }
+
+.hidden { display: none !important; }
+
+.intro-banner {
+  background: #fef9c3;
+  border: 1px solid #fde047;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.92rem;
+  margin-bottom: 16px;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 5fr) minmax(380px, 7fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* 画面が狭いときは縦1列に並べ替える (レスポンシブ対応) */
+@media (max-width: 900px) {
+  .lab-grid { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.panel h2 { margin: 0 0 14px; font-size: 1.1rem; }
+.panel-note { font-size: 0.78rem; color: var(--sub); font-weight: normal; }
+
+/* ===== TODO アプリ側 ===== */
+
+#todo-form { display: flex; gap: 8px; margin-bottom: 12px; }
+
+#todo-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+#todo-input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+
+#todo-form button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+#todo-form button:hover { filter: brightness(1.1); }
+
+#todo-list { list-style: none; margin: 0; padding: 0; }
+
+#todo-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 6px;
+  border-bottom: 1px dashed var(--line);
+}
+
+#todo-list li.done .todo-title { text-decoration: line-through; color: var(--sub); }
+
+.todo-title { flex: 1; }
+
+.todo-delete {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0.6;
+}
+
+.todo-delete:hover { opacity: 1; }
+
+.todo-empty { color: var(--sub); font-size: 0.9rem; }
+
+.experiment-corner {
+  margin-top: 18px;
+  border: 1.5px dashed var(--warn);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fffbeb;
+}
+
+.experiment-corner h3 { margin: 0 0 6px; font-size: 0.95rem; color: var(--warn); }
+.experiment-corner p { margin: 0 0 10px; font-size: 0.85rem; }
+
+.experiment-corner button {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--warn);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.experiment-corner button:hover { background: var(--warn); color: #fff; }
+
+/* ===== X-Ray パネル: 旅の地図 ===== */
+
+.flow-map {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 2px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: #f9fafb;
+  text-align: center;
+  transition: all 0.25s ease;  /* 点灯/消灯をなめらかに */
+}
+
+.stage-icon { font-size: 1.25rem; }
+.stage-label { font-size: 0.66rem; color: var(--sub); line-height: 1.3; }
+
+/* JS が .active を付けると、そのステージが「点灯」する */
+.stage.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.stage.active .stage-label { color: var(--accent); font-weight: 700; }
+
+/* 通過済みステージはうっすら色を残す */
+.stage.passed { border-color: #93c5fd; background: #eff6ff; }
+
+.flow-arrow { align-self: center; color: #9ca3af; font-size: 0.85rem; }
+
+.narration {
+  min-height: 3.2em;
+  background: #f0f9ff;
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  margin-bottom: 14px;
+}
+
+/* ===== X-Ray パネル: タブ ===== */
+
+.xray-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); }
+
+.tab-btn {
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--sub);
+  border-bottom: 2.5px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tab-btn.active { color: var(--accent); font-weight: 700; border-bottom-color: var(--accent); }
+
+.tab-body { padding-top: 10px; }
+
+.tab-hint { font-size: 0.8rem; color: var(--sub); margin: 0 0 8px; }
+
+/* HTTPの生テキストやSQLを表示する黒背景の枠 */
+.http-raw {
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 10px;
+}
+
+/* サーバー内部ステップの表 */
+
+#server-steps table, .textbook table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+#server-steps th, #server-steps td,
+.textbook th, .textbook td {
+  border: 1px solid var(--line);
+  padding: 6px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+#server-steps th, .textbook th { background: #f3f4f6; }
+
+.step-ms { white-space: nowrap; color: var(--sub); font-family: monospace; }
+
+.sql-heading { margin: 14px 0 6px; font-size: 0.9rem; }
+
+.sql-item { margin-bottom: 8px; }
+.sql-params { font-size: 0.78rem; color: var(--sub); margin: 2px 0 0 4px; }
+
+/* ステータスコードのバッジ (2xx=緑, 4xx=橙, 5xx=赤) */
+.badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.badge-2xx { background: var(--ok); }
+.badge-4xx { background: var(--warn); }
+.badge-5xx { background: var(--danger); }
+
+/* 履歴 */
+
+#history-list { list-style: none; margin: 0; padding: 0; }
+
+#history-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border-bottom: 1px dashed var(--line);
+  cursor: pointer;
+  font-size: 0.84rem;
+  border-radius: 6px;
+}
+
+#history-list li:hover { background: var(--accent-soft); }
+
+.history-method { font-family: monospace; font-weight: 700; width: 4.5em; }
+.history-path { flex: 1; font-family: monospace; color: var(--sub); }
+.history-ms { color: var(--sub); font-size: 0.78rem; }
+
+/* ===== 教科書 ===== */
+
+.textbook { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px 34px; }
+
+.toc { background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin-bottom: 24px; }
+.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+
+.chapter { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 20px; }
+.chapter h2 { font-size: 1.2rem; color: #1e3a8a; }
+.chapter h4 { margin: 8px 0 6px; }
+.chapter code, .tab-hint b {
+  background: #eef2ff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.chapter kbd {
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 0.85em;
+  background: #f9fafb;
+}
+
+.http-anatomy { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 800px) { .http-anatomy { grid-template-columns: 1fr; } }
+
+.timeline li { margin-bottom: 8px; }
+
+/* ===== 教科書のSVG図 ===== */
+
+.diagram { width: 100%; max-width: 640px; height: auto; display: block; margin: 12px auto; }
+
+.d-box { fill: #eff6ff; stroke: #2563eb; stroke-width: 1.5; }
+.d-client { fill: #ecfdf5; stroke: #059669; }
+.d-server { fill: #eff6ff; stroke: #2563eb; }
+.d-title { font-size: 15px; font-weight: 700; text-anchor: middle; fill: #1f2937; }
+.d-sub { font-size: 10.5px; text-anchor: middle; fill: #6b7280; }
+.d-label { font-size: 11px; text-anchor: middle; fill: #374151; }
+.d-arrow { stroke: #64748b; stroke-width: 2; }
+.d-arrowhead { fill: #64748b; }
+.d-brace { stroke: #9ca3af; stroke-width: 2; }
+.d-url { font-family: monospace; font-size: 21px; fill: #334155; }
+.d-url-host { fill: #059669; font-weight: 700; }
+.d-url-port { fill: #d97706; font-weight: 700; }
+.d-url-path { fill: #2563eb; font-weight: 700; }
