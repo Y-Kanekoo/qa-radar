@@ -14,6 +14,14 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 > README の Phase 表 / ソース数表記乖離 (P1、本 PR #17 で解消済み)、`pages_artifact`
 > output 未設定 (P3、既に解消済み) は解消済み。それ以外の項目は Phase C 相当として
 > 引き続き有効。本文 (以下) は原調査時点の記録として全面書き換えはしていない。
+>
+> **2026-07-31 追記(2)**: 本 PR #18(Phase B: 監視・信頼性向上)で以下も解消済み。
+> - fetch 層のリトライ/バックオフなし (P2) — `crawler/fetch.py` に 5xx / タイムアウト /
+>   接続エラー対象の指数バックオフ付きリトライ (最大2回) を実装
+> - `consecutive_errors` の読み取り側未実装 (P2) — `get_repeatedly_failing_sources()` を
+>   追加し、`run_crawl.py` のサマリで N 回連続失敗ソースを workflow warning として可視化
+> - crawl.yml の失敗握りつぶし(`notify_discord.py ... || true`)— `continue-on-error` +
+>   独立 `alert` ジョブによる可視化に置き換え。`run_crawl.py` も全滅時に exit 1 を返すよう修正
 
 ## TL;DR
 
@@ -40,7 +48,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 
 | コンポーネント | 実装 | 品質所見 |
 |---|---|---|
-| クローラー (`crawler/`) | ✅ | httpx + ETag/If-Modified-Since、robots.txt 遵守、エラー集約設計。リトライなし |
+| クローラー (`crawler/`) | ✅ | httpx + ETag/If-Modified-Since、robots.txt 遵守、エラー集約設計。リトライなし(PR #18 で解消) |
 | DB (`db.py`) | ✅ | SQLite WAL + FTS5(外部 content)、schema v2、前方マイグレーション |
 | タガー (`tagger/`) | ✅ | 10 固定タグ、キーワードスコア + source_tags + 共起の 3 層 |
 | RSS/Pages (`publisher/`) | ✅ | body 非露出を全レイヤーで徹底(47条の5 境界) |
@@ -71,8 +79,8 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P1 | Discord 部分失敗時、`send_batch` が件数のみ返すため「先頭 success 件を mark」が誤マーク(失敗記事の永久欠落 / 成功記事の重複再送) | `publisher/discord.py:128-158`, `scripts/notify_discord.py:96-99` |
 | P1 | README の Phase 表が古い(1〜4 が 🚧/⏳)、「30 sources」表記も実態(40)と乖離。CHANGELOG の「PyPI リリース済み」記載も未実施 | `README.md`, `README.ja.md`, `CHANGELOG.md` |
 | P2 | クロスソース転載検出 `is_cross_source_duplicate` が実装・テスト済みだが未配線 | `crawler/dedup.py:22-32` |
-| P2 | `consecutive_errors` は書き込むだけで読む側(退避・アラート)が未実装 | `crawler/store.py:97-124` |
-| P2 | fetch 層にリトライ/バックオフなし(5xx・タイムアウトは即失敗) | `crawler/fetch.py` |
+| P2 | `consecutive_errors` は書き込むだけで読む側(退避・アラート)が未実装(PR #18 で解消: `get_repeatedly_failing_sources()` + workflow warning) | `crawler/store.py:97-124` |
+| P2 | fetch 層にリトライ/バックオフなし(5xx・タイムアウトは即失敗)(PR #18 で解消: 指数バックオフ付きリトライ実装) | `crawler/fetch.py` |
 | P2 | MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%) | `src/qa_radar/server.py` |
 | P3 | `weight_tags_text` が YAML にあるが未実装(デッドコンフィグ)。「タグ 0 件は LLM フォールバック」コメントも未実装 | `config/tag_rules.yaml:4,9` |
 | P3 | crawl.yml の `pages_artifact` output が実際にはセットされない(echo ステップに id がない) | `.github/workflows/crawl.yml:33,97-99` |
@@ -104,11 +112,22 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 
 - Discord `send_batch` を per-item 結果(成功した article_id のリスト)を返す設計に変更し、
   `notify_discord.py` は成功分だけ mark する。部分失敗の統合テスト追加
-- fetch リトライ(指数バックオフ 2 回程度)+ ホスト単位の同時実行制限(github.com に 9 ソース集中)
-- `consecutive_errors` の配線: N 回連続失敗ソースを workflow summary で警告(自動 disable はしない)
+- ~~fetch リトライ(指数バックオフ 2 回程度)~~(PR #18 で解消)+ ホスト単位の同時実行制限
+  (github.com に 9 ソース集中、こちらは未着手)
+- ~~`consecutive_errors` の配線: N 回連続失敗ソースを workflow summary で警告(自動 disable はしない)~~
+  (PR #18 で解消)
 - crawl.yml の結果可視化: 追加件数・失敗ソースを GitHub Actions の Step Summary に出力
 - MCP サーバーの E2E テスト(FastMCP の in-memory クライアントで 6 ツールを実呼び出し)
 - 週 1 の scheduled workflow で `--integration`(実フィード疎通)を実行し、死んだフィードを早期検知
+- (PR #18 レビューでの積み残し、優先度低) `httpx.TransportError` を毎回律儀にリトライしており、
+  ホスト全体がダウンしている場合の恒久エラー検知・早期打ち切り(サーキットブレーカー)がない
+- (PR #18 レビューでの積み残し) `.github/workflows/*.yml` の `actionlint` / `scripts/*.sh` の
+  `shellcheck` を CI に導入し、YAML/シェル構文エラーを自動検知できるようにする
+- (PR #18 レビューでの積み残し) 全ソース失敗(exit 1)で crawl.yml が pipefail により早期停止すると、
+  当該実行中に増分した `consecutive_errors` が DB スナップショット公開(Publish DB snapshot)前に
+  失われ、次回実行時に古い DB から再開して連続失敗カウントが巻き戻る可能性がある
+- (PR #18 レビューでの積み残し) `deploy` / `alert` ジョブに `timeout-minutes` が未設定
+  (`crawl-and-build` のみ 30 分を設定済み)
 
 ### Phase 12 — 機能強化
 

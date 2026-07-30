@@ -128,3 +128,5 @@ gh workflow run crawl.yml --repo Y-Kanekoo/qa-radar -f skip_deploy=true
 > **GitHub Releases からの DB 復元を行わず、毎回ゼロから新規クロールした DB でビルドする**。
 > 実行すると、これまで蓄積してきた記事履歴がほぼ空のサイトで上書き公開されてしまう。
 > 通常の手動実行は必ず本項の `crawl.yml` を使うこと。
+> また `run_crawl.py` が全ソース失敗時に exit 1 を返すようになったため(Phase B)、
+> `pages.yml` も全滅時は「Crawl sources」ステップで中断する(意図した動作)。
