@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from qa_radar.crawler.orchestrator import run_crawl
+from qa_radar.crawler.store import get_repeatedly_failing_sources
 from qa_radar.db import init_db
 from qa_radar.sources import load_blocked, load_sources
 
@@ -75,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     conn = init_db(args.db_path)
     try:
         result = asyncio.run(run_crawl(conn, sources, blocked, concurrency=args.concurrency))
+        repeatedly_failing_sources = get_repeatedly_failing_sources(conn)
     finally:
         conn.close()
 
@@ -86,6 +88,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     for err in result.errors:
         log.warning("  %s", err)
+
+    for slug, consecutive_errors in repeatedly_failing_sources:
+        print(
+            "::warning title=Source failing repeatedly::"
+            f"{slug} が {consecutive_errors} 回連続で失敗しています"
+        )
+
+    error_count = len(result.errors)
+    if result.sources_processed > 0 and error_count == result.sources_processed:
+        print(
+            f"::error title=Crawl total failure::全 {result.sources_processed} ソースが失敗しました"
+        )
+        return 1
+
+    if error_count > 0:
+        failed_slugs = ",".join(str(err["slug"]) for err in result.errors)
+        print(
+            "::warning title=Crawl partial failure::"
+            f"{error_count}/{result.sources_processed} sources failed: {failed_slugs}"
+        )
 
     return 0
 

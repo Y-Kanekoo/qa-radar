@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+import qa_radar.crawler.fetch as fetch_module
 from qa_radar.crawler.orchestrator import _is_blocked, run_crawl
 from qa_radar.db import init_db
 from qa_radar.sources import BlockedConfig, FetchPolicy, SourceConfig
@@ -20,6 +21,22 @@ ATOM_2_ENTRIES = """<?xml version="1.0" encoding="UTF-8"?>
   <entry><id>g2</id><link href="https://e.com/2"/><title>記事2</title>
     <published>2024-01-16T00:00:00Z</published><content>本文2</content></entry>
 </feed>""".encode()
+
+
+@pytest.fixture(autouse=True)
+def _fast_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """fetch_feed() のリトライ待機 (既定 1s→2s) を無効化し、実待機なしで回す.
+
+    orchestrator は fetch_feed() の retry_base_delay を明示指定しないため、
+    500/接続エラーを返すテストがそのままだと計6秒の実待機になる。
+    stdlib の asyncio.sleep をグローバルに差し替えると影響範囲が広すぎるので、
+    fetch.py の間接層 `_sleep` だけを monkeypatch する。
+    """
+
+    async def _no_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(fetch_module, "_sleep", _no_sleep)
 
 
 def _src(slug: str = "t1", min_interval: int = 0) -> SourceConfig:
@@ -338,6 +355,43 @@ async def test_robots_disallow_skips_source(tmp_path: Path) -> None:
     assert feed_fetch_count == 0
     assert result.articles_added == 0
     assert any(e.get("reason") == "robots_disallow" for e in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_all_sources_exception_counts_as_processed_with_exception_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """全ソースが処理中に予期しない例外で落ちても sources_processed は len(sources) と一致する.
+
+    `asyncio.gather(..., return_exceptions=True)` が例外を返したソースの扱いを
+    検証する回帰テスト。修正前の実装は `sources_processed += 1` が
+    `isinstance(res, BaseException)` の判定より後にあったため、例外ソースが
+    処理数にカウントされず、全滅時でも `sources_processed == 0` のままで
+    「全ソースがエラー (sources_processed > 0 かつ errors == sources_processed)」の
+    判定が成立しないバグがあった。
+    """
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("想定外の例外")
+
+    monkeypatch.setattr("qa_radar.crawler.orchestrator.parse_feed", boom)
+
+    sources = [_src("a"), _src("b"), _src("c")]
+    async with httpx.AsyncClient(transport=_atom_transport()) as client:
+        conn = init_db(tmp_path / "test.db")
+        try:
+            result = await run_crawl(
+                conn,
+                sources,
+                BlockedConfig(blocked_domains=frozenset()),
+                client=client,
+            )
+        finally:
+            conn.close()
+
+    assert result.sources_processed == len(sources)
+    assert len(result.errors) == len(sources)
+    assert all(e["reason"] == "exception" for e in result.errors)
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from pathlib import Path
 from qa_radar.crawler.store import (
     ArticleRow,
     finish_crawl_run,
+    get_repeatedly_failing_sources,
     get_source_fetch_state,
     insert_article,
     start_crawl_run,
@@ -122,6 +123,66 @@ def test_get_source_fetch_state_unknown_id(tmp_path: Path) -> None:
     conn = init_db(tmp_path / "test.db")
     try:
         assert get_source_fetch_state(conn, 9999) == (None, None, None)
+    finally:
+        conn.close()
+
+
+def test_get_repeatedly_failing_sources_filters_by_threshold(tmp_path: Path) -> None:
+    """既定閾値(9)未満は含まれず、以上は含まれる."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid_a = upsert_source(conn, _make_source("a"))
+        sid_b = upsert_source(conn, _make_source("b"))
+        sid_c = upsert_source(conn, _make_source("c"))
+
+        for _ in range(8):  # 閾値未満
+            update_source_fetch_state(conn, sid_a, etag=None, last_modified=None, success=False)
+        for _ in range(9):  # 閾値ちょうど
+            update_source_fetch_state(conn, sid_b, etag=None, last_modified=None, success=False)
+        for _ in range(10):  # 閾値超過
+            update_source_fetch_state(conn, sid_c, etag=None, last_modified=None, success=False)
+
+        result = dict(get_repeatedly_failing_sources(conn))
+        assert "a" not in result
+        assert result["b"] == 9
+        assert result["c"] == 10
+    finally:
+        conn.close()
+
+
+def test_get_repeatedly_failing_sources_empty_when_none_failing(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        upsert_source(conn, _make_source("a"))
+        assert get_repeatedly_failing_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_get_repeatedly_failing_sources_custom_threshold(tmp_path: Path) -> None:
+    """threshold引数で閾値を変更できる."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source("a"))
+        for _ in range(3):
+            update_source_fetch_state(conn, sid, etag=None, last_modified=None, success=False)
+        assert get_repeatedly_failing_sources(conn, threshold=3) == [("a", 3)]
+        assert get_repeatedly_failing_sources(conn, threshold=4) == []
+    finally:
+        conn.close()
+
+
+def test_get_repeatedly_failing_sources_success_resets_below_threshold(tmp_path: Path) -> None:
+    """成功でconsecutive_errorsが0に戻ったソースは対象外になる."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source("a"))
+        for _ in range(9):
+            update_source_fetch_state(conn, sid, etag=None, last_modified=None, success=False)
+        assert get_repeatedly_failing_sources(conn) == [("a", 9)]
+
+        update_source_fetch_state(conn, sid, etag="x", last_modified="y", success=True)
+        assert get_repeatedly_failing_sources(conn) == []
     finally:
         conn.close()
 

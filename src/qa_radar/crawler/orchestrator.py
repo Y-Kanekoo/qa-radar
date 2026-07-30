@@ -229,11 +229,11 @@ async def run_crawl(
     sources_processed = 0
     errors: list[dict[str, object]] = []
     for source, res in zip(sources, results, strict=True):
+        sources_processed += 1
         if isinstance(res, BaseException):
             errors.append({"slug": source.slug, "reason": "exception", "detail": str(res)})
             continue
         added, err = res
-        sources_processed += 1
         total_added += added
         if err is not None:
             errors.append(err)

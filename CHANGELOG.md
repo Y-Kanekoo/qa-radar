@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Phase B**: 監視・信頼性向上。過去に GitHub Pages 設定ミスで約2ヶ月間 crawl.yml が
+  全滅していても誰も気づけなかった事故を踏まえ、「失敗が握りつぶされる/区別できない」
+  構造を解消
+  - `crawl.yml`: Discord 通知失敗を握りつぶさず (`continue-on-error` + 可視化)、
+    独立ジョブ `alert` で crawl-and-build / deploy いずれかの失敗や通知の部分失敗を
+    専用 Discord webhook (`DISCORD_ALERT_WEBHOOK_URL`) に通知。新規スクリプト
+    `scripts/notify_alert.sh` (POSIX sh + curl + jq)
+    - `Crawl + tag` ステップに `shell: bash` を明示し pipefail を有効化(既定シェルだと
+      `run_crawl.py | tee` の失敗が tee の exit 0 に隠れて検知できなかった問題を修正)
+  - `scripts/run_crawl.py`: 全ソース失敗時に exit 1 を返すよう修正(従来は常に exit 0
+    で全滅でも成功扱いだった)。部分失敗時は `::warning title=Crawl partial failure::`
+    annotation を出力
+  - `src/qa_radar/crawler/store.py`: `get_repeatedly_failing_sources()` を追加し、
+    書き込まれるだけだった `consecutive_errors` を読み取って N 回(既定9=1日3回×3日)
+    連続失敗しているソースを `run_crawl.py` のサマリで警告表示(自動無効化はしない)
+  - `src/qa_radar/crawler/fetch.py`: `fetch_feed()` にタイムアウト/接続エラー/5xx を
+    対象とした指数バックオフ付きリトライ(最大2回、計3試行)を追加。4xx・robots.txt
+    拒否・パース失敗はリトライ対象外
 - **Phase 11**: AI/LLM testing ソース 4 本追加 (40→44 本)。差別化タグ `ai-testing`
   に専門ソースがなかった問題を解消
   - GitHub Releases Atom (tool カテゴリ): promptfoo, DeepEval (confident-ai), Giskard, Langfuse
@@ -16,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Autify ブログ日本語版はRSSフィード自体が見つからず(サイトが403を返しegressポリシーでも
     ブロック対象)、見送り
   - 44 ソース内訳: tool 13 / blog 20 / community 6 / note 4 / paper 1 (language: ja 16 / en 28)
+
+### Fixed
+
+- `scripts/publish_release.py`: release 保持判定を `publishedAt` 基準に一本化
+  (`createdAt` フォールバックを削除、`publishedAt` が null の release はスキップ)。
+  TypedDict 化して型を明確化
 
 ## [0.2.0] - 2026-07-10
 

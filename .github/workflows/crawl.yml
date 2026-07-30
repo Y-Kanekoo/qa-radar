@@ -28,9 +28,11 @@ jobs:
   crawl-and-build:
     name: Crawl + tag + build + notify + publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       added: ${{ steps.crawl.outputs.added }}
       pages_artifact: ${{ steps.mark_uploaded.outputs.uploaded }}
+      notify_outcome: ${{ steps.notify.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,6 +60,11 @@ jobs:
 
       - name: Crawl + tag (自動でタグ付け)
         id: crawl
+        # 既定シェル (shell未指定時の `bash -e {0}`) は pipefail が無効で、
+        # `run_crawl.py | tee` のように pipe を挟むと run_crawl.py の exit code が
+        # tee の exit code (常に0) に隠れてしまう。shell: bash を明示して
+        # `-o pipefail` を有効にし、run_crawl.py の非0 exitをステップ失敗に反映する。
+        shell: bash
         run: |
           uv run python scripts/run_crawl.py --concurrency 5 2>&1 | tee /tmp/crawl.log
           ADDED=$(grep -oE "追加=[0-9]+" /tmp/crawl.log | tail -1 | cut -d= -f2 || echo 0)
@@ -65,11 +72,14 @@ jobs:
           echo "::notice title=Crawl complete::Added ${ADDED:-0} articles"
 
       - name: Notify Discord (idempotent, skips if URL unset)
+        id: notify
         if: ${{ inputs.skip_discord != true }}
+        # 通知はDBに通知済みマークを書き込むため、部分失敗でもDB公開を続けてマーク消失による次回の重複通知を防ぎ、失敗は後段で可視化する。
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          uv run python scripts/notify_discord.py --limit 20 || true
+          uv run python scripts/notify_discord.py --limit 20
 
       - name: Build pages
         run: uv run python scripts/build_pages.py
@@ -111,3 +121,73 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # crawl-and-build / deploy いずれかの失敗、または Discord通知ステップの部分失敗を
+  # 検知して専用Webhookへ通知する。ジョブ内ステップとして各ジョブに埋め込むと、
+  # アラート送信自体の失敗がジョブ全体を failure にしてしまい、
+  # (crawl-and-buildなら)後続の deploy がスキップされる退行を招くため、
+  # 独立ジョブとして分離している。
+  alert:
+    name: Alert on failure
+    needs: [crawl-and-build, deploy]
+    # deploy は skip_deploy=true 時に skipped になるだけなので、
+    # `== 'failure'` 判定であれば誤発火しない。cancelled 時は発火させない。
+    if: ${{ !cancelled() && (needs.crawl-and-build.result == 'failure' || needs.deploy.result == 'failure' || needs.crawl-and-build.outputs.notify_outcome == 'failure') }}
+    runs-on: ubuntu-latest
+    # checkout (読み取り専用) と Discord への通知送信しか行わないため、
+    # ワークフロー全体の permissions (contents: write 等) を継承せず最小権限に絞る
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Send alert
+        env:
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+          REPOSITORY_NAME: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          CRAWL_RESULT: ${{ needs.crawl-and-build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          NOTIFY_OUTCOME: ${{ needs.crawl-and-build.outputs.notify_outcome }}
+        run: |
+          # ジョブ失敗 (crawl-and-build / deploy) を Discord通知の部分失敗より
+          # 優先して先に並べる。複数該当する場合は全て併記する。
+          job_name=""
+          status_description=""
+
+          append_reason() {
+            if [ -z "$job_name" ]; then
+              job_name="$1"
+            else
+              job_name="$job_name, $1"
+            fi
+            if [ -z "$status_description" ]; then
+              status_description="$2"
+            else
+              status_description="$status_description / $2"
+            fi
+          }
+
+          if [ "$CRAWL_RESULT" = "failure" ]; then
+            append_reason "crawl-and-build" "crawl-and-buildジョブが失敗しました"
+          fi
+          if [ "$DEPLOY_RESULT" = "failure" ]; then
+            append_reason "deploy" "Pagesデプロイジョブ(deploy)が失敗しました"
+          fi
+          if [ "$NOTIFY_OUTCOME" = "failure" ]; then
+            append_reason "crawl-and-build(通知)" "Discord通知ステップが失敗しました"
+          fi
+
+          if [ -z "$status_description" ]; then
+            job_name="unknown"
+            status_description="不明な理由でアラートが発火しました"
+          fi
+
+          scripts/notify_alert.sh \
+            "$REPOSITORY_NAME" \
+            "$WORKFLOW_NAME" \
+            "$job_name" \
+            "$RUN_URL" \
+            "$status_description"
