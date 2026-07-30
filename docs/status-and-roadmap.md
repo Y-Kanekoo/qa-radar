@@ -3,6 +3,18 @@
 Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub 実運用状況を横断的に
 調べた結果と、これからの開発プランをまとめる。
 
+> **2026-07-31 追記**: 本文は Phase 0〜9 完了時点 (2026-07-10) の調査であり、
+> 以下の項目は Phase 10 で解消済み。
+> - GitHub Pages 有効化 (2026-07-30、Settings > Pages の Source を
+>   `build_type=workflow` に設定)
+> - DB スナップショット即削除バグ ([`4ad5400`](https://github.com/Y-Kanekoo/qa-radar/commit/4ad5400))
+> - Discord 通知の部分失敗時マークずれ ([`e7fdc8f`](https://github.com/Y-Kanekoo/qa-radar/commit/e7fdc8f) 以降)
+>
+> 下表の技術的負債のうち、Discord 部分失敗時の誤マーク (P1、`e7fdc8f` で解消済み)、
+> README の Phase 表 / ソース数表記乖離 (P1、本 PR #17 で解消済み)、`pages_artifact`
+> output 未設定 (P3、既に解消済み) は解消済み。それ以外の項目は Phase C 相当として
+> 引き続き有効。本文 (以下) は原調査時点の記録として全面書き換えはしていない。
+
 ## TL;DR
 
 **開発は高品質に完了しているが、本番運用は 3 チャネルとも機能していない。**
