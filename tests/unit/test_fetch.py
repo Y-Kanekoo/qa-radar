@@ -185,13 +185,37 @@ async def test_retries_with_exponential_backoff_without_real_wait(
     async def fake_sleep(delay: float) -> None:
         sleep_delays.append(delay)
 
-    monkeypatch.setattr(fetch_module.asyncio, "sleep", fake_sleep)
+    # stdlib の asyncio.sleep をグローバルに差し替えると影響範囲が広すぎるため、
+    # fetch.py 内の間接層 `_sleep` だけを monkeypatch する
+    monkeypatch.setattr(fetch_module, "_sleep", fake_sleep)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         r = await fetch_feed("https://example.com/feed", client=client)
 
     assert r.is_modified
     assert request_count == 3
     assert sleep_delays == [1.0, 2.0]
+
+
+@pytest.mark.asyncio
+async def test_negative_max_retries_normalized_to_zero() -> None:
+    """max_retries に負の値を渡しても1回は試行し、到達不能のはずの AssertionError に落ちない."""
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(200, content=b"<feed/>")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        r = await fetch_feed(
+            "https://example.com/feed",
+            client=client,
+            max_retries=-1,
+            retry_base_delay=0,
+        )
+
+    assert r.is_modified
+    assert request_count == 1
 
 
 # ---------------- RobotsCache ----------------

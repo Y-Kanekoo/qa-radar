@@ -16,6 +16,15 @@ DEFAULT_TIMEOUT = 30.0
 ACCEPT_HEADER = "application/atom+xml, application/rss+xml, application/xml, text/xml, */*"
 
 
+async def _sleep(delay: float) -> None:
+    """リトライ待機の間接層.
+
+    テストからこの関数だけを monkeypatch すれば、stdlib の `asyncio.sleep` を
+    グローバルに差し替えずにリトライ待機を無効化できる (影響範囲を最小化するため).
+    """
+    await asyncio.sleep(delay)
+
+
 @dataclass
 class FetchResult:
     """`fetch_feed()` の戻り値."""
@@ -71,6 +80,9 @@ async def fetch_feed(
     if last_modified:
         headers["If-Modified-Since"] = last_modified
 
+    # 負の値が渡されても無限ループ・添字異常にならないよう正規化する
+    max_retries = max(0, max_retries)
+
     own_client = client is None
     used_client = (
         client if client is not None else httpx.AsyncClient(timeout=timeout, follow_redirects=True)
@@ -81,7 +93,7 @@ async def fetch_feed(
                 resp = await used_client.get(url, headers=headers)
             except httpx.TransportError as e:
                 if attempt < max_retries:
-                    await asyncio.sleep(retry_base_delay * (2**attempt))
+                    await _sleep(retry_base_delay * (2**attempt))
                     continue
                 return FetchResult(
                     url=url,
@@ -102,7 +114,7 @@ async def fetch_feed(
                 )
 
             if 500 <= resp.status_code <= 599 and attempt < max_retries:
-                await asyncio.sleep(retry_base_delay * (2**attempt))
+                await _sleep(retry_base_delay * (2**attempt))
                 continue
 
             if resp.status_code == 304:
