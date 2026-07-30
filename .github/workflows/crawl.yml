@@ -65,11 +65,14 @@ jobs:
           echo "::notice title=Crawl complete::Added ${ADDED:-0} articles"
 
       - name: Notify Discord (idempotent, skips if URL unset)
+        id: notify
         if: ${{ inputs.skip_discord != true }}
+        # 通知はDBに通知済みマークを書き込むため、部分失敗でもDB公開を続けてマーク消失による次回の重複通知を防ぎ、失敗は後段で可視化する。
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          uv run python scripts/notify_discord.py --limit 20 || true
+          uv run python scripts/notify_discord.py --limit 20
 
       - name: Build pages
         run: uv run python scripts/build_pages.py
@@ -99,6 +102,29 @@ jobs:
         if: ${{ inputs.skip_deploy != true }}
         run: echo "uploaded=true" >> "$GITHUB_OUTPUT"
 
+      # ジョブ失敗またはDiscord通知ステップの部分失敗を専用Webhookへ通知する。
+      - name: Alert on failure
+        if: always() && (failure() || steps.notify.outcome == 'failure')
+        env:
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+          REPOSITORY_NAME: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          JOB_NAME: crawl-and-build
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTIFY_OUTCOME: ${{ steps.notify.outcome }}
+        run: |
+          if [ "$NOTIFY_OUTCOME" = "failure" ]; then
+            STATUS_DESCRIPTION="Discord通知ステップが失敗しました"
+          else
+            STATUS_DESCRIPTION="crawl-and-buildジョブが失敗しました"
+          fi
+          scripts/notify_alert.sh \
+            "$REPOSITORY_NAME" \
+            "$WORKFLOW_NAME" \
+            "$JOB_NAME" \
+            "$RUN_URL" \
+            "$STATUS_DESCRIPTION"
+
   deploy:
     name: Deploy to GitHub Pages
     needs: crawl-and-build
@@ -108,6 +134,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Pagesデプロイ失敗をクロール処理の失敗と区別して専用Webhookへ通知する。
+      - name: Alert on deploy failure
+        if: failure()
+        env:
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+          REPOSITORY_NAME: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          JOB_NAME: deploy
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          scripts/notify_alert.sh \
+            "$REPOSITORY_NAME" \
+            "$WORKFLOW_NAME" \
+            "$JOB_NAME" \
+            "$RUN_URL" \
+            "Pages デプロイジョブ (deploy) が失敗しました"
