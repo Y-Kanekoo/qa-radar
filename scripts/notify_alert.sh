@@ -18,51 +18,27 @@ if [ -z "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
   exit 0
 fi
 
-# JSON文字列として必要なバックスラッシュ、二重引用符、改行、タブ、復帰をエスケープする。
-json_escape() {
-  LC_ALL=C awk '
-    function escape_line(value, escaped, index, character) {
-      escaped = ""
-      for (index = 1; index <= length(value); index++) {
-        character = substr(value, index, 1)
-        if (character == "\\") {
-          escaped = escaped "\\\\"
-        } else if (character == "\"") {
-          escaped = escaped "\\\""
-        } else if (character == "\t") {
-          escaped = escaped "\\t"
-        } else if (character == "\r") {
-          escaped = escaped "\\r"
-        } else {
-          escaped = escaped character
-        }
-      }
-      return escaped
-    }
-
-    {
-      if (NR > 1) {
-        printf "\\n"
-      }
-      printf "%s", escape_line($0)
-    }
-  '
-}
-
 message=$(printf '%s\n%s\n%s\n%s\n%s' \
   "【GitHub Actions アラート】" \
   "リポジトリ: $repository_name" \
   "ワークフロー: $workflow_name" \
   "ジョブ: $job_name" \
   "状況: $status_description / Run: $run_url")
-escaped_message=$(printf '%s' "$message" | json_escape)
-payload=$(printf '{"content":"%s"}' "$escaped_message")
 
+# JSON組み立ては手組みエスケープではなく jq に委譲する
+# (POSIX awk の予約語 `index` を変数名に使ってしまい構文エラーで落ちる、といった
+#  自前実装特有の事故を避けるため。ubuntu-latest ランナーには jq がプリインストール済み)
+payload=$(jq -n --arg content "$message" '{content: $content}')
+
+# webhook URL 自体はログに出さない (Discord webhook URL は事実上の秘密情報のため)
 if ! curl \
   --fail \
   --silent \
   --show-error \
   --max-time 10 \
+  --retry 3 \
+  --retry-connrefused \
+  --retry-all-errors \
   --request POST \
   --header "Content-Type: application/json" \
   --data "$payload" \
