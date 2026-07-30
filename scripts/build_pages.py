@@ -27,7 +27,8 @@ from qa_radar.publisher.queries import (
     fetch_source_summaries,
     fetch_tag_summaries,
 )
-from qa_radar.publisher.rss import main_feed_url, tag_feed_url, write_feed
+from qa_radar.publisher.rss import build_site_subtitle, main_feed_url, tag_feed_url, write_feed
+from qa_radar.sources import load_sources
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -82,17 +83,40 @@ def main(argv: list[str] | None = None) -> int:
     output: Path = args.output
     output.mkdir(parents=True, exist_ok=True)
 
+    # config/sources.yaml の有効ソース数. 文言 (「Nソース」等) の即値化を避け、
+    # ここで一度だけ数えて rss/pages 側へ引数として渡す.
+    source_count = sum(1 for s in load_sources() if s.enabled)
+
     conn = init_db(args.db_path)
     try:
         articles = fetch_recent_articles(conn, limit=args.limit)
         sources = fetch_source_summaries(conn)
         tags = fetch_tag_summaries(conn, min_count=args.min_tag_count)
 
-        log.info("articles=%d, sources=%d, tags=%d", len(articles), len(sources), len(tags))
+        log.info(
+            "articles=%d, sources=%d, tags=%d, source_count=%d",
+            len(articles),
+            len(sources),
+            len(tags),
+            source_count,
+        )
 
         # メインフィード (Atom + RSS)
-        write_feed(articles, output / "feed.atom", feed_url=main_feed_url("atom"), fmt="atom")
-        write_feed(articles, output / "feed.xml", feed_url=main_feed_url("rss"), fmt="rss")
+        subtitle = build_site_subtitle(source_count)
+        write_feed(
+            articles,
+            output / "feed.atom",
+            feed_url=main_feed_url("atom"),
+            subtitle=subtitle,
+            fmt="atom",
+        )
+        write_feed(
+            articles,
+            output / "feed.xml",
+            feed_url=main_feed_url("rss"),
+            subtitle=subtitle,
+            fmt="rss",
+        )
 
         # タグ別フィード
         for ts in tags:
@@ -107,9 +131,9 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         # HTML
-        write_html(render_index(articles), output / "index.html")
-        write_html(render_sources_page(sources), output / "sources.html")
-        write_html(render_tags_page(tags), output / "tags.html")
+        write_html(render_index(articles, source_count=source_count), output / "index.html")
+        write_html(render_sources_page(sources, source_count=source_count), output / "sources.html")
+        write_html(render_tags_page(tags, source_count=source_count), output / "tags.html")
 
         # docs/style.css をコピー (ビルド時の依存性を _build に閉じ込める)
         css_src = REPO_ROOT / "docs" / "style.css"

@@ -46,7 +46,7 @@ _HTML_HEADER = """<!DOCTYPE html>
 <link rel="stylesheet" href="{css_path}">
 <link rel="alternate" type="application/atom+xml" title="qa-radar" href="{atom_path}">
 <link rel="alternate" type="application/rss+xml" title="qa-radar" href="{rss_path}">
-<meta name="description" content="QA/テスト自動化のニュースアグリゲーター. 30ソースから日英記事を集約.">
+<meta name="description" content="{description}">
 </head>
 <body>
 <header>
@@ -83,7 +83,14 @@ _HTML_FOOTER = """</main>
 """
 
 
-def _render_header(title: str, *, in_subdir: bool = False) -> str:
+def _meta_description(source_count: int | None) -> str:
+    """meta description を生成する. source_count 不明時はソース数を省略する."""
+    if source_count is None:
+        return "QA/テスト自動化のニュースアグリゲーター. 日英記事を集約."
+    return f"QA/テスト自動化のニュースアグリゲーター. {source_count}ソースから日英記事を集約."
+
+
+def _render_header(title: str, *, in_subdir: bool = False, source_count: int | None = None) -> str:
     root = "../" if in_subdir else "./"
     return _HTML_HEADER.format(
         title=escape(title),
@@ -91,6 +98,7 @@ def _render_header(title: str, *, in_subdir: bool = False) -> str:
         atom_path=f"{root}feed.atom",
         rss_path=f"{root}feed.xml",
         root_path=root,
+        description=_meta_description(source_count),
     )
 
 
@@ -124,20 +132,31 @@ def _render_article_card(item: FeedItem) -> str:
     )
 
 
-def render_index(items: list[FeedItem]) -> str:
-    """トップページ HTML を返す."""
+def render_index(items: list[FeedItem], *, source_count: int | None = None) -> str:
+    """トップページ HTML を返す.
+
+    Args:
+        items: 表示する記事一覧.
+        source_count: 有効ソース数 (呼び出し側の `qa_radar.sources.load_sources()`
+            集計結果を渡す想定). 不明な場合は None でソース数表記を省略する.
+    """
+    hero_lead = f"{source_count} ソースから集約した" if source_count is not None else "集約した"
     body = (
         f'<section class="hero">'
-        f"<p>30 ソースから集約した QA/テスト自動化の記事 {len(items)} 件 (最新順).</p>"
+        f"<p>{hero_lead} QA/テスト自動化の記事 {len(items)} 件 (最新順).</p>"
         f"</section>"
     )
     body += '<section class="articles">'
     body += "\n".join(_render_article_card(it) for it in items)
     body += "</section>"
-    return _render_header(f"{len(items)} 件の最新記事 — qa-radar") + body + _render_footer()
+    return (
+        _render_header(f"{len(items)} 件の最新記事 — qa-radar", source_count=source_count)
+        + body
+        + _render_footer()
+    )
 
 
-def render_sources_page(sources: list[SourceSummary]) -> str:
+def render_sources_page(sources: list[SourceSummary], *, source_count: int | None = None) -> str:
     body = "<h2>集約ソース一覧</h2>"
     body += '<table class="sources">'
     body += (
@@ -163,10 +182,12 @@ def render_sources_page(sources: list[SourceSummary]) -> str:
             f"</tr>"
         )
     body += "</tbody></table>"
-    return _render_header("ソース一覧 — qa-radar") + body + _render_footer()
+    return (
+        _render_header("ソース一覧 — qa-radar", source_count=source_count) + body + _render_footer()
+    )
 
 
-def render_tags_page(tags: list[TagSummary]) -> str:
+def render_tags_page(tags: list[TagSummary], *, source_count: int | None = None) -> str:
     body = "<h2>タグ一覧</h2>"
     body += "<p>各タグをクリックすると、そのタグの Atom フィードが取得できます.</p>"
     body += '<ul class="tag-cloud">'
@@ -176,7 +197,9 @@ def render_tags_page(tags: list[TagSummary]) -> str:
             f'<span class="count">({t.article_count})</span></li>'
         )
     body += "</ul>"
-    return _render_header("タグ一覧 — qa-radar") + body + _render_footer()
+    return (
+        _render_header("タグ一覧 — qa-radar", source_count=source_count) + body + _render_footer()
+    )
 
 
 # ---------------- 書き出し ----------------
