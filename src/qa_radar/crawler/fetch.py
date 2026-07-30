@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -44,6 +45,8 @@ async def fetch_feed(
     last_modified: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     client: httpx.AsyncClient | None = None,
+    max_retries: int = 2,
+    retry_base_delay: float = 1.0,
 ) -> FetchResult:
     """RSS/Atom フィードを取得する.
 
@@ -56,6 +59,8 @@ async def fetch_feed(
         last_modified: 前回取得時の Last-Modified (あれば).
         timeout: HTTP タイムアウト秒.
         client: 共有 httpx.AsyncClient. None なら関数内で生成する.
+        max_retries: 一時的な失敗に対する最大リトライ回数.
+        retry_base_delay: 指数バックオフの基準待機秒.
 
     Returns:
         FetchResult. ネットワーク例外は `error` フィールドに格納する.
@@ -71,44 +76,62 @@ async def fetch_feed(
         client if client is not None else httpx.AsyncClient(timeout=timeout, follow_redirects=True)
     )
     try:
-        try:
-            resp = await used_client.get(url, headers=headers)
-        except httpx.HTTPError as e:
+        for attempt in range(max_retries + 1):
+            try:
+                resp = await used_client.get(url, headers=headers)
+            except httpx.TransportError as e:
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_base_delay * (2**attempt))
+                    continue
+                return FetchResult(
+                    url=url,
+                    status_code=0,
+                    content=None,
+                    etag=None,
+                    last_modified=None,
+                    error=str(e),
+                )
+            except httpx.HTTPError as e:
+                return FetchResult(
+                    url=url,
+                    status_code=0,
+                    content=None,
+                    etag=None,
+                    last_modified=None,
+                    error=str(e),
+                )
+
+            if 500 <= resp.status_code <= 599 and attempt < max_retries:
+                await asyncio.sleep(retry_base_delay * (2**attempt))
+                continue
+
+            if resp.status_code == 304:
+                return FetchResult(
+                    url=url,
+                    status_code=304,
+                    content=None,
+                    etag=etag,
+                    last_modified=last_modified,
+                )
+
+            if resp.status_code != 200:
+                return FetchResult(
+                    url=url,
+                    status_code=resp.status_code,
+                    content=None,
+                    etag=None,
+                    last_modified=None,
+                    error=f"unexpected status: {resp.status_code}",
+                )
+
             return FetchResult(
                 url=url,
-                status_code=0,
-                content=None,
-                etag=None,
-                last_modified=None,
-                error=str(e),
+                status_code=200,
+                content=resp.content,
+                etag=resp.headers.get("etag"),
+                last_modified=resp.headers.get("last-modified"),
             )
-
-        if resp.status_code == 304:
-            return FetchResult(
-                url=url,
-                status_code=304,
-                content=None,
-                etag=etag,
-                last_modified=last_modified,
-            )
-
-        if resp.status_code != 200:
-            return FetchResult(
-                url=url,
-                status_code=resp.status_code,
-                content=None,
-                etag=None,
-                last_modified=None,
-                error=f"unexpected status: {resp.status_code}",
-            )
-
-        return FetchResult(
-            url=url,
-            status_code=200,
-            content=resp.content,
-            etag=resp.headers.get("etag"),
-            last_modified=resp.headers.get("last-modified"),
-        )
+        raise AssertionError("到達不能なリトライ状態です")
     finally:
         if own_client:
             await used_client.aclose()
