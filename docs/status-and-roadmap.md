@@ -10,8 +10,10 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 > - DB スナップショット即削除バグ ([`4ad5400`](https://github.com/Y-Kanekoo/qa-radar/commit/4ad5400))
 > - Discord 通知の部分失敗時マークずれ ([`e7fdc8f`](https://github.com/Y-Kanekoo/qa-radar/commit/e7fdc8f) 以降)
 >
-> 未解消の技術的負債 (下表 P1/P2) は Phase C 相当として引き続き有効。
-> 本文 (以下) は原調査時点の記録として全面書き換えはしていない。
+> 下表の技術的負債のうち、Discord 部分失敗時の誤マーク (P1、`e7fdc8f` で解消済み)、
+> README の Phase 表 / ソース数表記乖離 (P1、本 PR #17 で解消済み)、`pages_artifact`
+> output 未設定 (P3、既に解消済み) は解消済み。それ以外の項目は Phase C 相当として
+> 引き続き有効。本文 (以下) は原調査時点の記録として全面書き換えはしていない。
 
 ## TL;DR
 
