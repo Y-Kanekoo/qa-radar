@@ -50,9 +50,15 @@ def _run_script(*, webhook_url: str | None) -> subprocess.CompletedProcess[str]:
 
 
 def test_skips_when_webhook_url_unset() -> None:
-    """DISCORD_ALERT_WEBHOOK_URL 未設定なら送信せず exit 0."""
+    """DISCORD_ALERT_WEBHOOK_URL 未設定なら送信せず exit 0.
+
+    GitHub Actions の run summary に表示されるよう ::warning:: annotation 形式で
+    出力する (人間がシークレット未設定に気づきやすくするため)。
+    """
     result = _run_script(webhook_url=None)
     assert result.returncode == 0
+    assert "::warning title=Alert skipped::" in result.stdout
+    assert "DISCORD_ALERT_WEBHOOK_URL" in result.stdout
     assert "スキップ" in result.stdout
 
 
@@ -85,8 +91,14 @@ def test_sends_valid_json_payload_to_webhook() -> None:
     _CapturingHandler.captured_content_type = None
 
     server = http.server.HTTPServer(("127.0.0.1", 0), _CapturingHandler)
+    # スクリプトがリクエストを送らずに落ちた場合でも handle_request() が
+    # 無限に待ち続けないよう上限を設ける (この上限が無いと、破損したスクリプトを
+    # 対象にした際に pytest プロセスごとハングしてしまう)
+    server.timeout = 10
     port = server.server_address[1]
-    server_thread = threading.Thread(target=server.handle_request)
+    # daemon=True にして、万一 handle_request() がハングしてもテストプロセスの
+    # 終了をブロックしないようにする (timeout設定と合わせた二重の安全策)
+    server_thread = threading.Thread(target=server.handle_request, daemon=True)
     server_thread.start()
     try:
         result = _run_script(webhook_url=f"http://127.0.0.1:{port}/webhook")

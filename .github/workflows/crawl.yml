@@ -134,6 +134,10 @@ jobs:
     # `== 'failure'` 判定であれば誤発火しない。cancelled 時は発火させない。
     if: ${{ !cancelled() && (needs.crawl-and-build.result == 'failure' || needs.deploy.result == 'failure' || needs.crawl-and-build.outputs.notify_outcome == 'failure') }}
     runs-on: ubuntu-latest
+    # checkout (読み取り専用) と Discord への通知送信しか行わないため、
+    # ワークフロー全体の permissions (contents: write 等) を継承せず最小権限に絞る
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4

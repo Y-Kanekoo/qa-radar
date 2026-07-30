@@ -14,7 +14,9 @@ run_url=$4
 status_description=$5
 
 if [ -z "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
-  echo "DISCORD_ALERT_WEBHOOK_URL が未設定のためアラート送信をスキップします"
+  # GitHub Actions annotation 形式にしておくと workflow の run summary に
+  # 表示され、シークレット未設定に人間が気づきやすくなる
+  echo "::warning title=Alert skipped::DISCORD_ALERT_WEBHOOK_URL 未設定のためアラート送信をスキップしました"
   exit 0
 fi
 
