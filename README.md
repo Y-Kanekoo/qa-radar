@@ -27,10 +27,11 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | 3. RSS + Pages | ✅ |
 | 4. Discord notifier | ✅ |
 | 5. MCP server | ✅ |
-| 6. PyPI publish | ✅ |
+| 6. PyPI publish | ⏳ workflow ready, not yet published |
 | 7. Cron automation | ✅ |
 | 8. LLM summarizer (optional) | ✅ |
 | 9. Source expansion (30→40) | ✅ |
+| 10. Ops recovery | ✅ |
 | 11. AI/LLM testing sources (40→44) | ✅ |
 
 ## Differentiation
@@ -69,7 +70,11 @@ The local MCP server exposes 5 tools you can call from Claude Desktop / Claude C
 - `get_article(article_id, include_body)` — article details (body defaults to off)
 - `list_sources()` — aggregated sources with counts
 - `list_tags(min_count, limit)` — tag occurrence counts
-- `summarize_article(article_id, max_tokens, model)` — **opt-in**. Requires `ANTHROPIC_API_KEY` env and `pip install qa-radar[ai]`. Summarizes article body with Claude Haiku 4.5.
+- `summarize_article(article_id, max_tokens, model)` — **opt-in**. Requires `ANTHROPIC_API_KEY` env and the `ai` extra (see below). Summarizes article body with Claude Haiku 4.5.
+
+> **Note**: qa-radar has not been published to PyPI yet (see Status table above), so
+> `uvx qa-radar` does not work yet. Install directly from GitHub instead. This section
+> will be updated to the PyPI-based flow once a release is published.
 
 Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.json`):
 
@@ -78,7 +83,7 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
   "mcpServers": {
     "qa-radar": {
       "command": "uvx",
-      "args": ["qa-radar"],
+      "args": ["--from", "git+https://github.com/Y-Kanekoo/qa-radar", "qa-radar"],
       "env": {
         "QA_RADAR_DB_PATH": "/path/to/articles.db"
       }
@@ -87,10 +92,13 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
 }
 ```
 
-(`uvx qa-radar` pulls the latest published version from PyPI on first run and caches it.)
+(`uvx --from git+https://github.com/Y-Kanekoo/qa-radar qa-radar` pulls the latest `main`
+branch on each run and caches it. Once PyPI publish is complete, this will switch back to
+the simpler `uvx qa-radar` form.)
 
-If you want to pin a specific version or pre-release, use `uvx qa-radar==0.2.0` or
-`uvx --from git+https://github.com/Y-Kanekoo/qa-radar qa-radar` for the latest `main`.
+For the LLM summarizer opt-in, use the `ai` extra:
+`uvx --from "qa-radar[ai] @ git+https://github.com/Y-Kanekoo/qa-radar" qa-radar`
+(or, for a local clone, `pip install -e ".[ai]"`).
 
 For development with a local clone:
 
