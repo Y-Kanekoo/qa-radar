@@ -19,8 +19,14 @@
   5. DB スナップショットを GitHub Releases に再アップロード (`scripts/publish_release.py --mode full`、retention 7 日)
   6. GitHub Pages へデプロイ (`configure-pages` → `upload-pages-artifact` → `deploy-pages`)
 
-いずれかのステップが失敗しても、後続の DB スナップショット (ステップ 5) はクロールが
-成功していれば独立して実行される (Pages デプロイの失敗はデータ消失に直結しない)。
+DB スナップショット (ステップ 5) は Pages 関連ステップ (ステップ 6) より **前** に実行される。
+そのため **Configure Pages / Upload Pages artifact / Deploy が失敗しても、DB スナップショットは
+既に Release へ保存済みなので失われない**。
+
+ただし `crawl.yml` の各ステップは直列実行で `if: always()` は設定されていないため、
+**ステップ 4 (`Build pages`) が失敗すると、後続のステップ 5 (DB スナップショット) 自体が
+スキップされる**。この場合、その回でクロールした記事は Release に残らない (ただし記事自体は
+次回実行時に再クロールされて拾われるため、恒久的なデータ消失にはならない)。
 
 ## 初期セットアップ (手動作業)
 
@@ -40,7 +46,7 @@
 
 | Secret 名 | 用途 | 状態 |
 |---|---|---|
-| `DISCORD_WEBHOOK_URL` | 新着記事の通知用 Discord webhook | 必須 (未設定でも実行は継続、通知のみスキップ) |
+| `DISCORD_WEBHOOK_URL` | 新着記事の通知用 Discord webhook | 推奨 (未設定でも実行は継続、通知のみスキップされる) |
 | `DISCORD_ALERT_WEBHOOK_URL` | 運用アラート通知用 (crawl 失敗検知など) | Phase B で使用予定。未実装のためまだ参照されない |
 
 登録方法 (`gh` CLI):
@@ -71,15 +77,18 @@ gh run view <run-id> --repo Y-Kanekoo/qa-radar
 
 ### 2. 失敗ステップによる切り分け
 
-| 失敗ステップ | 分類 | 影響・対応 |
-|---|---|---|
-| `Crawl + tag` | 収集系 | 記事収集そのものが失敗。フィード取得先の障害・パースエラー・依存関係エラーなどを疑う。ログの `crawl.log` 相当を確認 |
-| `Notify Discord` | 通知系 | `\|\| true` で握りつぶされ、後続ステップには影響しない。Secrets 未設定 or webhook 側の問題を疑う |
-| `Publish DB snapshot to GH Releases` | 永続化系 | `crawl` が成功していればここは通常失敗しない。`gh` CLI の権限 (`contents: write`) や API 制限を疑う |
-| `Configure Pages` / `Upload Pages artifact` / `Deploy` (deploy ジョブ) | Pages 設定系 | 上記「初期セットアップ 1」の設定漏れが最有力原因。**crawl が成功していれば DB スナップショットは無事**なので、データ消失の心配はない |
+| 失敗ステップ | 所属ジョブ | 分類 | 影響・対応 |
+|---|---|---|---|
+| `Crawl + tag (自動でタグ付け)` | `crawl-and-build` | 収集系 | 記事収集そのものが失敗。フィード取得先の障害・パースエラー・依存関係エラーなどを疑う。ログの `crawl.log` 相当を確認 |
+| `Notify Discord (idempotent, skips if URL unset)` | `crawl-and-build` | 通知系 | `\|\| true` で握りつぶされ、後続ステップには影響しない。Secrets 未設定 or webhook 側の問題を疑う |
+| `Build pages` | `crawl-and-build` | ビルド系 | この失敗により後続の `Publish DB snapshot to GH Releases` も**スキップされる**(直列実行・`if: always()` なし)。今回クロールした記事は Release に残らないが、次回実行時に再クロールされるため取りこぼしにはならない |
+| `Publish DB snapshot to GH Releases` | `crawl-and-build` | 永続化系 | `Crawl + tag` / `Build pages` が成功していればここは通常失敗しない。`gh` CLI の権限 (`contents: write`) や API 制限を疑う |
+| `Configure Pages` / `Upload Pages artifact` | `crawl-and-build` | Pages 設定系 | 上記「初期セットアップ 1」の設定漏れが最有力原因。**この時点で DB スナップショットは既に Release へ保存済み**なので、データ消失の心配はない |
+| `Deploy` | `deploy` | Pages 設定系 | 同上。`crawl-and-build` ジョブが正常終了した後の別ジョブなので、DB スナップショットには影響しない |
 
-つまり: **crawl ステップの失敗 = データが増えていない (要調査)**、
-**Pages 系ステップの失敗 = サイト更新が反映されていないだけ (DB は健全)**、と切り分けられる。
+つまり: **`Crawl + tag` / `Build pages` の失敗 = 今回分のデータが Release に残らない (要調査。
+ただし次回実行時に再クロールされる)**、**`Configure Pages` 以降の Pages 系ステップの失敗 =
+サイト更新が反映されていないだけ (DB スナップショットは既に健在)**、と切り分けられる。
 
 ## DB 復旧
 
@@ -113,3 +122,9 @@ gh workflow run crawl.yml --repo Y-Kanekoo/qa-radar -f skip_deploy=true
 
 実行後は `gh run list --workflow=crawl.yml --repo Y-Kanekoo/qa-radar --limit 1` で
 起動を確認し、上記「障害時の一次切り分け」の手順で結果を追う。
+
+> **注意: `pages.yml` を安易に使わないこと**。`.github/workflows/pages.yml` も
+> `workflow_dispatch` で手動実行できるが、これは緊急時の即時再生成用に残された別ワークフローで、
+> **GitHub Releases からの DB 復元を行わず、毎回ゼロから新規クロールした DB でビルドする**。
+> 実行すると、これまで蓄積してきた記事履歴がほぼ空のサイトで上書き公開されてしまう。
+> 通常の手動実行は必ず本項の `crawl.yml` を使うこと。
