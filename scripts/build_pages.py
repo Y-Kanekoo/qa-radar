@@ -27,7 +27,13 @@ from qa_radar.publisher.queries import (
     fetch_source_summaries,
     fetch_tag_summaries,
 )
-from qa_radar.publisher.rss import build_site_subtitle, main_feed_url, tag_feed_url, write_feed
+from qa_radar.publisher.rss import (
+    SITE_SUBTITLE,
+    build_site_subtitle,
+    main_feed_url,
+    tag_feed_url,
+    write_feed,
+)
 from qa_radar.sources import load_sources
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -85,7 +91,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # config/sources.yaml の有効ソース数. 文言 (「Nソース」等) の即値化を避け、
     # ここで一度だけ数えて rss/pages 側へ引数として渡す.
-    source_count = sum(1 for s in load_sources() if s.enabled)
+    # あくまで表示専用の値なので、取得に失敗してもビルド全体は止めない
+    # (ここで落ちると DB スナップショットの publish まで巻き添えになるため).
+    try:
+        source_count: int | None = sum(1 for s in load_sources() if s.enabled)
+    except Exception:
+        log.warning(
+            "有効ソース数の取得に失敗。ソース数表記なしでビルドを続行します。", exc_info=True
+        )
+        source_count = None
 
     conn = init_db(args.db_path)
     try:
@@ -94,15 +108,16 @@ def main(argv: list[str] | None = None) -> int:
         tags = fetch_tag_summaries(conn, min_count=args.min_tag_count)
 
         log.info(
-            "articles=%d, sources=%d, tags=%d, source_count=%d",
+            "articles=%d, sources=%d, tags=%d, source_count=%s",
             len(articles),
             len(sources),
             len(tags),
             source_count,
         )
 
-        # メインフィード (Atom + RSS)
-        subtitle = build_site_subtitle(source_count)
+        # メインフィード (Atom + RSS). source_count 取得失敗時は SITE_SUBTITLE
+        # (ソース数を含まない汎用文言) にフォールバックする.
+        subtitle = build_site_subtitle(source_count) if source_count is not None else SITE_SUBTITLE
         write_feed(
             articles,
             output / "feed.atom",

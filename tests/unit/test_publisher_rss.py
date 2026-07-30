@@ -8,6 +8,7 @@ import feedparser
 
 from qa_radar.publisher.rss import (
     FeedItem,
+    build_site_subtitle,
     main_feed_url,
     tag_feed_url,
     write_feed,
@@ -133,3 +134,25 @@ def test_feed_anonymous_author_uses_source_name(tmp_path: Path) -> None:
     )
     parsed = feedparser.parse(out.read_bytes())
     assert parsed.entries[0].author == "Anonymous Blog"
+
+
+def test_build_site_subtitle_embeds_source_count() -> None:
+    """build_site_subtitle がソース数をテンプレートへ埋め込む (本番相当の 44 で確認)."""
+    subtitle = build_site_subtitle(44)
+    assert "44ソース" in subtitle
+    assert "QA/テスト自動化のニュースアグリゲーター" in subtitle
+    assert "日英対応" in subtitle
+
+
+def test_write_feed_uses_source_count_subtitle(tmp_path: Path) -> None:
+    """build_site_subtitle() の出力を subtitle として渡すと description に反映される."""
+    out = tmp_path / "feed.xml"
+    write_feed(
+        [_item()],
+        out,
+        feed_url="https://example.com/feed.xml",
+        subtitle=build_site_subtitle(44),
+        fmt="rss",
+    )
+    parsed = feedparser.parse(out.read_bytes())
+    assert "44ソース" in parsed.feed.subtitle

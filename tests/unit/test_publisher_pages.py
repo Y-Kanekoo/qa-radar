@@ -80,6 +80,21 @@ def test_index_legal_disclaimer_present() -> None:
     assert "削除依頼" in html
 
 
+def test_index_source_count_appears_in_hero_and_meta() -> None:
+    """source_count 指定時、hero文言と meta description の両方にソース数が反映される
+    (本番相当の 44 で確認)."""
+    html = render_index([], source_count=44)
+    assert "44 ソースから集約した" in html
+    assert "44ソースから日英記事を集約" in html
+
+
+def test_index_omits_source_count_when_not_given() -> None:
+    """source_count 未指定 (None) の場合はソース数表記を省略する (既存呼び出し互換性)."""
+    html = render_index([])
+    assert "ソースから集約した" not in html
+    assert "ソースから日英記事を集約" not in html
+
+
 # ---------------- render_sources_page ----------------
 
 
