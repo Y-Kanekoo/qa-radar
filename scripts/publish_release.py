@@ -19,10 +19,18 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 DATA_TAG_PREFIX = "data-"
 DEFAULT_RETENTION_DAYS = 7
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class DataRelease(TypedDict):
+    """GitHub Release の保持判定に必要な情報."""
+
+    tagName: str
+    publishedAt: NotRequired[str | None]
 
 
 def _gh(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -58,18 +66,13 @@ def create_data_release(db_path: Path, repo: str | None = None) -> str:
     return tag
 
 
-def list_data_releases(repo: str | None = None) -> list[dict[str, str]]:
-    """data-* タグの release を tag/publishedAt/createdAt のリストで返す.
-
-    注意: `createdAt` は「release 作成時刻」ではなく、タグが指す
-    コミットのコミット日時になる (GitHub API の罠). release の
-    公開日時を知りたい場合は `publishedAt` を使うこと.
-    """
-    args = ["release", "list", "--limit", "200", "--json", "tagName,publishedAt,createdAt"]
+def list_data_releases(repo: str | None = None) -> list[DataRelease]:
+    """data-* タグの release を tag/publishedAt のリストで返す."""
+    args = ["release", "list", "--limit", "200", "--json", "tagName,publishedAt"]
     if repo:
         args.extend(["--repo", repo])
     proc = _gh(*args, capture=True)
-    releases: list[dict[str, str]] = json.loads(proc.stdout)
+    releases: list[DataRelease] = json.loads(proc.stdout)
     return [r for r in releases if r["tagName"].startswith(DATA_TAG_PREFIX)]
 
 
@@ -83,19 +86,6 @@ def delete_release(tag: str, repo: str | None = None) -> bool:
         return True
     except subprocess.CalledProcessError:
         return False
-
-
-def _release_timestamp(release: dict[str, str]) -> datetime:
-    """release の「公開日時」を返す.
-
-    `publishedAt` を優先する。`createdAt` はタグが指すコミットの
-    コミット日時であって release 作成時刻ではないため (GitHub API の罠)、
-    古さ判定にそのまま使うと「main への最終コミットから何日経ったか」を
-    見てしまい、作成直後の release が即座に削除されうる。
-    `publishedAt` が null (draft 等) の場合のみ `createdAt` にフォールバックする.
-    """
-    raw = release.get("publishedAt") or release["createdAt"]
-    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
 
 
 def cleanup_old_releases(
@@ -117,7 +107,10 @@ def cleanup_old_releases(
     for r in releases:
         if r["tagName"] == latest_tag:
             continue
-        published = _release_timestamp(r)
+        published_at = r.get("publishedAt")
+        if published_at is None:
+            continue
+        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
         if published < cutoff and delete_release(r["tagName"], repo=repo):
             deleted += 1
     return deleted
