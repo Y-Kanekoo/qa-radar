@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 from qa_radar.sources import SourceConfig
 
+DEFAULT_CONSECUTIVE_ERROR_THRESHOLD = 9
+
 
 @dataclass
 class ArticleRow:
@@ -135,6 +137,24 @@ def get_source_fetch_state(
     if row is None:
         return (None, None, None)
     return (row["last_etag"], row["last_modified"], row["last_fetched_at"])
+
+
+def get_repeatedly_failing_sources(
+    conn: sqlite3.Connection,
+    *,
+    threshold: int = DEFAULT_CONSECUTIVE_ERROR_THRESHOLD,
+) -> list[tuple[str, int]]:
+    """連続失敗回数が閾値以上の有効なソースを返す."""
+    rows = conn.execute(
+        """
+        SELECT slug, consecutive_errors
+        FROM sources
+        WHERE enabled = 1 AND consecutive_errors >= ?
+        ORDER BY slug
+        """,
+        (threshold,),
+    ).fetchall()
+    return [(str(row["slug"]), int(row["consecutive_errors"])) for row in rows]
 
 
 def start_crawl_run(conn: sqlite3.Connection) -> int:
