@@ -123,7 +123,8 @@ def search_articles(
         全語が3文字以上なら BM25 でランキング (title 重み5、tags 2、body 1)。
         長語と短語の混在時は長語を FTS5、短語を LIKE として AND 検索し BM25 順。
         全語が3文字未満なら LIKE のみで検索し、公開日時の降順で返す。
-        3文字未満の語は部分一致であり、語境界を見ない。
+        3文字未満の純 ASCII 英数語は語境界で照合し、非 ASCII または
+        記号を含む短語は部分一致する。
     """
     db = ctx.request_context.lifespan_context.db
     return search_articles_impl(

@@ -15,6 +15,7 @@ from qa_radar.tools import (
     _fts5_safe_query,
     _iso_to_unix,
     _unix_to_iso,
+    _word_boundary_match,
     get_article_impl,
     list_recent_impl,
     list_sources_impl,
@@ -111,6 +112,25 @@ def test_escape_like_term_treats_backslash_as_literal(tmp_path: Path) -> None:
         assert different_match == 0
     finally:
         conn.close()
+
+
+@pytest.mark.parametrize(
+    ("text", "term", "expected"),
+    [
+        (None, "DB", 0),
+        ("", "DB", 0),
+        ("DB", "", 0),
+        ("DB2", "DB", 0),
+        ("S3DB", "DB", 0),
+        ("v2ui", "ui", 0),
+        ("生成AIの活用", "AI", 1),
+        ("DBに保存", "DB", 1),
+        ("MAX_DB_SIZE", "DB", 1),
+    ],
+)
+def test_word_boundary_match(text: str | None, term: str, expected: int) -> None:
+    """語境界判定の数字・日本語・記号と空値の扱いを検証する."""
+    assert _word_boundary_match(text, term) == expected
 
 
 # ---------------- search_articles ----------------
@@ -214,6 +234,59 @@ def test_search_ascii_short_term_accepts_symbol_boundary(tmp_path: Path) -> None
 
         assert [item["url"] for item in result["items"]] == ["https://e.com/pipeline"]
     finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_rejects_numeric_adjacency(tmp_path: Path) -> None:
+    """ASCII 数字は語の一部として扱い、境界にしない."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "db2", title="DB2 guide"))
+        insert_article(conn, _article(sid, "s3db", title="S3DB guide"))
+        insert_article(conn, _article(sid, "v2ui", title="v2ui guide"))
+
+        assert search_articles_impl(conn, "DB")["items"] == []
+        assert search_articles_impl(conn, "ui")["items"] == []
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_accepts_japanese_adjacency(tmp_path: Path) -> None:
+    """日本語は ASCII 英数字ではないため語境界として扱う."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "ai", title="生成AIの活用"))
+        insert_article(conn, _article(sid, "db", title="DBに保存"))
+
+        assert [item["url"] for item in search_articles_impl(conn, "AI")["items"]] == [
+            "https://e.com/ai"
+        ]
+        assert [item["url"] for item in search_articles_impl(conn, "DB")["items"]] == [
+            "https://e.com/db"
+        ]
+    finally:
+        conn.close()
+
+
+def test_search_with_unconsumed_cursor_uses_registered_udf(tmp_path: Path) -> None:
+    """未消費カーソルがあっても検索時に UDF を再登録しない."""
+    conn = _setup_db(tmp_path)
+    cursor: sqlite3.Cursor | None = None
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "match", title="DB migration"))
+        insert_article(conn, _article(sid, "other", title="Other article"))
+        cursor = conn.execute("SELECT id FROM articles ORDER BY id")
+        assert cursor.fetchone() is not None
+
+        result = search_articles_impl(conn, "DB")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/match"]
+    finally:
+        if cursor is not None:
+            cursor.close()
         conn.close()
 
 

@@ -65,7 +65,7 @@ See [config/sources.yaml](config/sources.yaml) for the full list and
 
 The local MCP server exposes 5 tools you can call from Claude Desktop / Claude Code:
 
-- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5 trigram + BM25; mixed queries use FTS for terms of 3+ characters and literal LIKE conditions for shorter terms, while all-short queries use LIKE ordered by publication date
+- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5 trigram + BM25; mixed queries use FTS for terms of 3+ characters and LIKE for shorter terms, restricting short ASCII alphanumeric terms to word-boundary matches; all-short queries use LIKE ordered by publication date
 - `list_recent(days, source?, tag?, limit)` — recent articles
 - `get_article(article_id, include_body)` — article details (body defaults to off)
 - `list_sources()` — aggregated sources with counts

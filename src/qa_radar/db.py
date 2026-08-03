@@ -21,6 +21,8 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
+from qa_radar.tools import _word_boundary_match
+
 logger = logging.getLogger("qa_radar.db")
 
 SCHEMA_VERSION = 4  # v4: FTS5 を trigram トークナイザで再構築
@@ -247,8 +249,11 @@ def init_db(path: Path) -> sqlite3.Connection:
             または schema_version テーブルにバージョン行が無い破損状態の場合.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # この接続は Python UDF を持つためスレッド間で共有しない。UDF コールバックと
+    # GIL の相互ブロックによりハングする可能性がある。
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.create_function("word_boundary_match", 2, _word_boundary_match, deterministic=True)
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA synchronous = NORMAL")
