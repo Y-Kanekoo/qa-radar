@@ -5,7 +5,7 @@
 - WAL モード: 並列読み取り（クローラー実行中に MCP も同DBを開く想定）
 - 外部コンテンツ FTS5 (`content='articles'`): ストレージ二重持ちを避け、トリガで同期
 - `tokenize='trigram'`: 3文字以上の日本語・英語を部分一致検索. 3文字未満の語を
-    含むクエリは検索ツール側で LIKE にフォールバックする.
+    含むクエリは検索ツール側で FTS と LIKE を組み合わせる.
 - `schema_version` テーブル: 将来のマイグレーション用バージョン番号を保持
 
 **注意 (foot-gun)**: `_SCHEMA_SQL` は **新規 DB の作成にしか使われない**.
@@ -195,13 +195,14 @@ def _get_schema_version(conn: sqlite3.Connection) -> int | None:
     return int(row["version"])
 
 
-def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
+def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> bool:
     """current_version の次から SCHEMA_VERSION まで逐次適用する.
 
     別プロセス (常駐 MCP サーバ等) が同時に init_db を実行しても二重適用しないよう、
     書き込みロックを取る `BEGIN IMMEDIATE` で開始し、トランザクション内でバージョンを
-    読み直してから適用する.
+    読み直してから適用する. この接続で1件以上適用した場合は True を返す.
     """
+    applied = False
     for target_version in range(current_version + 1, SCHEMA_VERSION + 1):
         migration = MIGRATIONS.get(target_version)
         if migration is None:
@@ -223,6 +224,8 @@ def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
             raise
         else:
             conn.commit()
+            applied = True
+    return applied
 
 
 def init_db(path: Path) -> sqlite3.Connection:
@@ -262,7 +265,11 @@ def init_db(path: Path) -> sqlite3.Connection:
                 "より新しいコードでDBが作られている可能性があります."
             )
         else:
-            _apply_migrations(conn, current_version)
+            migrations_applied = _apply_migrations(conn, current_version)
+            if migrations_applied:
+                # DROP した旧 FTS の free page を配布スナップショットに残さない。
+                # VACUUM はトランザクション内では実行できないため、全適用後に1回だけ行う。
+                conn.execute("VACUUM")
     except Exception:
         conn.close()
         raise

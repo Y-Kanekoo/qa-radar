@@ -111,7 +111,7 @@ def search_articles(
     問合せには list_recent を優先すること.
 
     Args:
-        query: 検索キーワード. スペース区切りで複数語を AND 検索.
+        query: 検索キーワード. スペース区切りで最大50語を AND 検索.
         tags: タグでフィルタ. 例: ["e2e", "ai-testing"].
         date_from: ISO8601 文字列で from 日時 (例 "2024-01-15").
         date_to: ISO8601 文字列で to 日時.
@@ -121,7 +121,9 @@ def search_articles(
     Returns:
         {items: [{id, title, url, snippet, ...}], has_more, next_offset}.
         全語が3文字以上なら BM25 でランキング (title 重み5、tags 2、body 1)。
-        短い語を含む場合は LIKE 検索となり、公開日時の降順で返す。
+        長語と短語の混在時は長語を FTS5、短語を LIKE として AND 検索し BM25 順。
+        全語が3文字未満なら LIKE のみで検索し、公開日時の降順で返す。
+        3文字未満の語は部分一致であり、語境界を見ない。
     """
     db = ctx.request_context.lifespan_context.db
     return search_articles_impl(

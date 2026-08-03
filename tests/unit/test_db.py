@@ -332,6 +332,7 @@ def test_v3_db_migrates_to_v4_and_rebuilds_trigram_fts(tmp_path: Path) -> None:
         automation_hits = conn.execute(
             "SELECT COUNT(*) AS c FROM articles_fts WHERE articles_fts MATCH '自動化'"
         ).fetchone()["c"]
+        freelist_count = conn.execute("PRAGMA freelist_count").fetchone()[0]
 
         assert version == 4
         assert article["guid"] == "legacy-guid"
@@ -343,8 +344,35 @@ def test_v3_db_migrates_to_v4_and_rebuilds_trigram_fts(tmp_path: Path) -> None:
         assert triggers == {"articles_ai", "articles_ad", "articles_au"}
         assert test_hits == 1
         assert automation_hits == 1
+        assert freelist_count == 0
     finally:
         conn.close()
+
+
+def test_vacuum_runs_once_only_when_migration_is_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """マイグレーション適用後だけ、トランザクション外で VACUUM を1回実行する."""
+    db_path = tmp_path / "test.db"
+    _create_v3_db(db_path)
+    real_connect = sqlite3.connect
+    statements: list[str] = []
+
+    def traced_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        conn = real_connect(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(db_module.sqlite3, "connect", traced_connect)
+
+    conn = init_db(db_path)
+    conn.close()
+    assert [sql for sql in statements if sql.strip().upper() == "VACUUM"] == ["VACUUM"]
+
+    statements.clear()
+    conn = init_db(db_path)
+    conn.close()
+    assert not any(sql.strip().upper() == "VACUUM" for sql in statements)
 
 
 def test_v1_db_migrates_through_v2_v3_and_v4(tmp_path: Path) -> None:
