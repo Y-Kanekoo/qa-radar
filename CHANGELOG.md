@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     429 Rate Limit は Retry-After に従って再送 (`src/qa_radar/publisher/discord.py` と同方針)。
     webhook URL は事実上のシークレットのため、ログ・例外経路のいずれにも出力しない
   - `docs/operations.md`: 「週次ヘルスレポートの見方」節を追加
+- **Phase C-4**: MCP サーバーの実プロトコル E2E テスト追加(`tests/unit/test_server_e2e.py`)。
+  `mcp.shared.memory.create_connected_server_and_client_session()` で in-memory ストリーム上に
+  initialize ハンドシェイク込みの実 JSON-RPC 接続を張り、tool スキーマ・実呼び出し・lifespan
+  異常系・`summarize_article` の条件付き登録を検証。`src/qa_radar/server.py` のカバレッジが
+  55% → 94% に向上
 
 ### Fixed
 
