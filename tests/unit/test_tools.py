@@ -240,9 +240,7 @@ def test_search_ascii_short_term_matches_body_after_title_partial_match(tmp_path
 
         result = search_articles_impl(conn, "DB")
 
-        assert [item["url"] for item in result["items"]] == [
-            "https://e.com/mongodb-with-db-body"
-        ]
+        assert [item["url"] for item in result["items"]] == ["https://e.com/mongodb-with-db-body"]
     finally:
         conn.close()
 
