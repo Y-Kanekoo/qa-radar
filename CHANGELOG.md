@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- schema **v4**: FTS5 を `porter unicode61` から `trigram` へ再構築するマイグレーションを追加。
+  既存記事を `rebuild` で全件再インデックスし、新規 DB も最初から trigram を使用
 - **Phase C-3**: クロスソース転載重複の配線と DB マイグレーション基盤
   - `src/qa_radar/db.py`: バージョン別マイグレーション関数を逐次適用する基盤を追加
     (`MIGRATIONS` dict + `_apply_migrations()`)。列追加のような ALTER を伴う変更に対応。
@@ -71,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   initialize ハンドシェイク込みの実 JSON-RPC 接続を張り、tool スキーマ・実呼び出し・lifespan
   異常系・`summarize_article` の条件付き登録を検証。`src/qa_radar/server.py` のカバレッジが
   55% → 94% に向上
+
+### Changed
+
+- 全文検索を日本語部分一致に対応した FTS5 trigram へ一本化。全検索語が3文字以上なら
+  BM25 順、1語でも3文字未満なら全語をエスケープ済み LIKE で検索し公開日時順で返す
 
 ### Fixed
 

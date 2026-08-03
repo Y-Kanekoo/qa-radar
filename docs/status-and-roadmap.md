@@ -91,7 +91,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P2 | ~~MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%)~~(PR #20 で解消: 実プロトコル E2E テスト追加、カバレッジ 94%) | `src/qa_radar/server.py` |
 | ~~P3~~ | ~~`weight_tags_text` が YAML にあるが未実装(デッドコンフィグ)~~(2026-08-03 解消: `weight_tags_text` を削除し冒頭コメントを実態に修正)。「タグ 0 件は LLM フォールバック」コメントも未実装 | `config/tag_rules.yaml:9` |
 | P3 | crawl.yml の `pages_artifact` output が実際にはセットされない(echo ステップに id がない) | `.github/workflows/crawl.yml:33,97-99` |
-| P3 | FTS5 `unicode61` は日本語を分かち書きしないため、日本語の部分一致精度が低い(既知の制約) | `db.py` |
+| ~~P3~~ | ~~FTS5 `unicode61` は日本語を分かち書きしないため、日本語の部分一致精度が低い~~ (2026-08-03 解消: trigram で「テスト」12/196→196/196、「自動化」2/62→62/62。短語は LIKE へフォールバック) | `db.py` |
 | P3 | 非 UTF-8 フィード(Shift-JIS 等)のパースが未検証 | `crawler/parse.py` |
 | P3 | ~~DB マイグレーションが「新テーブル追加」しか想定していない(ALTER 非対応)~~(PR #19 で解消: `MIGRATIONS` による逐次適用基盤 + schema v3) | `db.py` |
 
@@ -148,7 +148,7 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 
 - ~~**クロスソース重複検出の配線**(RSS / Pages / Discord 出力前に body_hash で抑制)~~
   (PR #19 で解消。残タスク: v3 化前から DB にある転載重複のバックフィル)
-- **日本語検索の改善**: FTS5 `trigram` トークナイザの併用検討(unicode61 は CJK を分かち書きしない)
+- ~~**日本語検索の改善**: FTS5 `trigram` トークナイザの併用検討~~ (2026-08-03 解消: trigram に一本化し、3文字未満の語を含むクエリは LIKE へフォールバック。実測で「テスト」12/196→196/196、「自動化」2/62→62/62)
 - **タグ 0 件記事への LLM フォールバック**(tag_rules.yaml に構想のみ存在。Haiku でバッチ処理、opt-in)
 - **arxiv のノイズ削減**: cs.SE 全件は QA 以外が大半。arxiv API クエリでキーワード
   (testing / fault / bug / verification 等)を事前フィルタ
