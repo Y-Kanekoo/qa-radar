@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         result.articles_added,
         len(result.errors),
     )
+    log.info("重複マーク: %d 件", result.duplicates_marked)
     for err in result.errors:
         log.warning("  %s", err)
 

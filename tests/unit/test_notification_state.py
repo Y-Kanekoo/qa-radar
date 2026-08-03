@@ -142,6 +142,27 @@ def test_fetch_unnotified_does_not_load_body(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_fetch_unnotified_excludes_cross_source_duplicates(tmp_path: Path) -> None:
+    """duplicate_of がある記事は未通知のまま通知対象から除外する."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid1 = upsert_source(conn, _src("origin"))
+        sid2 = upsert_source(conn, _src("repost"))
+        insert_article(conn, _article(sid1, "origin"))
+        origin_id = _get_article_id(conn, "origin")
+        duplicate = _article(sid2, "duplicate")
+        duplicate.duplicate_of = origin_id
+        insert_article(conn, duplicate)
+
+        unnotified = fetch_unnotified(conn)
+        notified_rows = conn.execute("SELECT article_id FROM article_notifications").fetchall()
+
+        assert [article.article_id for article in unnotified] == [origin_id]
+        assert notified_rows == []
+    finally:
+        conn.close()
+
+
 # ---------------- mark_notified ----------------
 
 
@@ -186,19 +207,18 @@ def test_mark_notified_bulk_empty(tmp_path: Path) -> None:
         conn.close()
 
 
-# ---------------- DBスキーマ v2 マイグレーション ----------------
+# ---------------- DBスキーマ ----------------
 
 
-def test_v1_to_v2_migration_adds_table(tmp_path: Path) -> None:
-    """v1 DB を v2 のコードで開いた時、article_notifications テーブルが追加される."""
+def test_latest_schema_includes_notification_table(tmp_path: Path) -> None:
+    """最新スキーマに article_notifications テーブルが含まれる."""
     db_path = tmp_path / "test.db"
     conn = init_db(db_path)
-    # v2 で初期化されているのでこれだけで通る
     rows = conn.execute(
         "SELECT name FROM sqlite_master WHERE name='article_notifications'"
     ).fetchall()
     assert len(rows) == 1
-    # version も2に更新されている
+    # version も最新の3に設定されている
     row = conn.execute("SELECT version FROM schema_version").fetchone()
-    assert row["version"] == 2
+    assert row["version"] == 3
     conn.close()

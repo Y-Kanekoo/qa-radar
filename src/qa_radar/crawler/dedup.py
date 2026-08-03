@@ -30,3 +30,24 @@ def is_cross_source_duplicate(conn: sqlite3.Connection, body_hash: str, source_i
         (body_hash, source_id),
     )
     return cur.fetchone() is not None
+
+
+def find_cross_source_original_id(
+    conn: sqlite3.Connection, body_hash: str, source_id: int
+) -> int | None:
+    """別ソースにある同一本文の元記事 ID を返す.
+
+    元記事は、既に保存された非重複記事のうち公開日時が最も古いものとする。
+    公開日時が同じ場合は先に保存された記事を優先する。
+    """
+    row = conn.execute(
+        """
+        SELECT id
+        FROM articles
+        WHERE body_hash = ? AND source_id != ? AND duplicate_of IS NULL
+        ORDER BY published_at ASC, id ASC
+        LIMIT 1
+        """,
+        (body_hash, source_id),
+    ).fetchone()
+    return int(row["id"]) if row is not None else None

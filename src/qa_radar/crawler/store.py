@@ -26,6 +26,7 @@ class ArticleRow:
     author: str | None
     published_at: int
     tags: list[str] | None = None  # None なら空タグで挿入 (Phase 2 から指定)
+    duplicate_of: int | None = None
 
 
 def upsert_source(conn: sqlite3.Connection, source: SourceConfig) -> int:
@@ -73,8 +74,8 @@ def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
             """
             INSERT INTO articles
                 (source_id, guid, url, title, snippet, body_hash, body, author,
-                 published_at, fetched_at, tags_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 published_at, fetched_at, tags_json, duplicate_of)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article.source_id,
@@ -88,6 +89,7 @@ def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
                 article.published_at,
                 int(time.time()),
                 tags_json,
+                article.duplicate_of,
             ),
         )
         conn.commit()

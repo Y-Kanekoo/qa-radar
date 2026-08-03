@@ -91,6 +91,44 @@ def test_insert_article_returns_true_then_false(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_insert_article_stores_duplicate_of(tmp_path: Path) -> None:
+    """ArticleRow の duplicate_of を articles へ保存する."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid1 = upsert_source(conn, _make_source("origin"))
+        sid2 = upsert_source(conn, _make_source("duplicate"))
+        origin = ArticleRow(
+            source_id=sid1,
+            guid="origin",
+            url="https://e.com/origin",
+            title="origin",
+            snippet="origin",
+            body_hash="same",
+            body="body",
+            author=None,
+            published_at=1700000000,
+        )
+        assert insert_article(conn, origin) is True
+        origin_id = int(conn.execute("SELECT id FROM articles").fetchone()["id"])
+        duplicate = ArticleRow(
+            source_id=sid2,
+            guid="duplicate",
+            url="https://e.com/duplicate",
+            title="duplicate",
+            snippet="duplicate",
+            body_hash="same",
+            body="body",
+            author=None,
+            published_at=1700000100,
+            duplicate_of=origin_id,
+        )
+        assert insert_article(conn, duplicate) is True
+        row = conn.execute("SELECT duplicate_of FROM articles WHERE guid = 'duplicate'").fetchone()
+        assert row["duplicate_of"] == origin_id
+    finally:
+        conn.close()
+
+
 def test_fetch_state_lifecycle(tmp_path: Path) -> None:
     conn = init_db(tmp_path / "test.db")
     try:

@@ -59,6 +59,15 @@ def _atom_transport() -> httpx.MockTransport:
     )
 
 
+def _single_entry_atom(guid: str, body: str) -> bytes:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>x</title><updated>2024-01-15T12:00:00Z</updated>
+  <entry><id>{guid}</id><link href="https://e.com/{guid}"/><title>{guid}</title>
+    <published>2024-01-15T00:00:00Z</published><content>{body}</content></entry>
+</feed>""".encode()
+
+
 def test_is_blocked_exact_match() -> None:
     blocked = BlockedConfig(blocked_domains=frozenset({"jiji.com"}))
     assert _is_blocked("https://www.jiji.com/feed", blocked) is True
@@ -148,6 +157,105 @@ async def test_dedup_on_second_run(tmp_path: Path) -> None:
         finally:
             conn.close()
     assert r2.articles_added == 0
+
+
+@pytest.mark.asyncio
+async def test_cross_source_duplicate_is_marked_with_original_id(tmp_path: Path) -> None:
+    """別ソースの同一長文は保持しつつ元記事 ID を設定する."""
+    content = _single_entry_atom("shared", "x" * 200)
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=content))
+    async with httpx.AsyncClient(transport=transport) as client:
+        conn = init_db(tmp_path / "test.db")
+        try:
+            first = await run_crawl(
+                conn,
+                [_src("origin")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            origin = conn.execute(
+                "SELECT id, duplicate_of FROM articles WHERE source_id = "
+                "(SELECT id FROM sources WHERE slug = 'origin')"
+            ).fetchone()
+            second = await run_crawl(
+                conn,
+                [_src("repost")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            repost = conn.execute(
+                "SELECT duplicate_of FROM articles WHERE source_id = "
+                "(SELECT id FROM sources WHERE slug = 'repost')"
+            ).fetchone()
+        finally:
+            conn.close()
+
+    assert first.duplicates_marked == 0
+    assert origin["duplicate_of"] is None
+    assert second.articles_added == 1
+    assert second.duplicates_marked == 1
+    assert repost["duplicate_of"] == origin["id"]
+
+
+@pytest.mark.asyncio
+async def test_same_source_same_guid_is_not_inserted_or_marked(tmp_path: Path) -> None:
+    """同一ソースの既知 guid は転載判定前にスキップする."""
+    content = _single_entry_atom("same-guid", "x" * 200)
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=content))
+    async with httpx.AsyncClient(transport=transport) as client:
+        conn = init_db(tmp_path / "test.db")
+        try:
+            await run_crawl(
+                conn,
+                [_src("same-source")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            second = await run_crawl(
+                conn,
+                [_src("same-source")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            rows = conn.execute("SELECT duplicate_of FROM articles").fetchall()
+        finally:
+            conn.close()
+
+    assert second.articles_added == 0
+    assert second.duplicates_marked == 0
+    assert len(rows) == 1
+    assert rows[0]["duplicate_of"] is None
+
+
+@pytest.mark.asyncio
+async def test_body_shorter_than_200_characters_skips_duplicate_mark(tmp_path: Path) -> None:
+    """199文字の同一本文は別ソースでも重複マークしない."""
+    content = _single_entry_atom("short", "x" * 199)
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=content))
+    async with httpx.AsyncClient(transport=transport) as client:
+        conn = init_db(tmp_path / "test.db")
+        try:
+            await run_crawl(
+                conn,
+                [_src("first")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            second = await run_crawl(
+                conn,
+                [_src("second")],
+                BlockedConfig(frozenset()),
+                client=client,
+            )
+            duplicate_values = [
+                row["duplicate_of"]
+                for row in conn.execute("SELECT duplicate_of FROM articles").fetchall()
+            ]
+        finally:
+            conn.close()
+
+    assert second.duplicates_marked == 0
+    assert duplicate_values == [None, None]
 
 
 @pytest.mark.asyncio

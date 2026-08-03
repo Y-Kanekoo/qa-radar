@@ -82,6 +82,7 @@ def search_articles_impl(
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
 
+    # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
     where: list[str] = ["articles_fts MATCH ?"]
     params: list[Any] = [_fts5_safe_query(query)]
 

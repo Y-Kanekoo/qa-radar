@@ -19,7 +19,7 @@ def fetch_recent_articles(
     limit: int = 100,
     tag: str | None = None,
 ) -> list[FeedItem]:
-    """最近の記事を `published_at DESC` で取得する.
+    """重複を除いた最近の記事を `published_at DESC` で取得する.
 
     body 列は **絶対にロードしない** (公開境界).
     """
@@ -29,7 +29,7 @@ def fetch_recent_articles(
                 a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,
                 s.name AS source_name
             FROM articles a JOIN sources s ON a.source_id = s.id
-            WHERE a.tags_json LIKE ?
+            WHERE a.duplicate_of IS NULL AND a.tags_json LIKE ?
             ORDER BY a.published_at DESC
             LIMIT ?
         """
@@ -40,6 +40,7 @@ def fetch_recent_articles(
                 a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,
                 s.name AS source_name
             FROM articles a JOIN sources s ON a.source_id = s.id
+            WHERE a.duplicate_of IS NULL
             ORDER BY a.published_at DESC
             LIMIT ?
         """
@@ -64,12 +65,13 @@ def fetch_recent_articles(
 
 
 def fetch_source_summaries(conn: sqlite3.Connection) -> list[SourceSummary]:
-    """sources.html 用にソースと件数・最終公開日を取得."""
+    """sources.html 用に重複を除いた件数・最終公開日を取得."""
     sql = """
         SELECT s.slug, s.name, s.site_url, s.language, s.category,
                COUNT(a.id) AS article_count,
                MAX(a.published_at) AS latest
-        FROM sources s LEFT JOIN articles a ON a.source_id = s.id
+        FROM sources s LEFT JOIN articles a
+          ON a.source_id = s.id AND a.duplicate_of IS NULL
         GROUP BY s.id
         ORDER BY article_count DESC, s.slug
     """
@@ -89,13 +91,14 @@ def fetch_source_summaries(conn: sqlite3.Connection) -> list[SourceSummary]:
 
 
 def fetch_tag_summaries(conn: sqlite3.Connection, *, min_count: int = 1) -> list[TagSummary]:
-    """タグ別件数を集計する.
+    """公開表示と揃えるため重複を除いてタグ別件数を集計する.
 
     tags_json は JSON 配列. SQLite の json_each で展開する.
     """
     sql = """
         SELECT je.value AS tag, COUNT(*) AS cnt
         FROM articles a, json_each(a.tags_json) je
+        WHERE a.duplicate_of IS NULL
         GROUP BY tag
         HAVING cnt >= ?
         ORDER BY cnt DESC, tag
