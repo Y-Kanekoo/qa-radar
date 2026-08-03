@@ -11,6 +11,41 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_TAG_RULES_PATH = _REPO_ROOT / "config" / "tag_rules.yaml"
 
+# defaults: 配下で load_tagger_config() が解釈する既知キー.
+# `case_sensitive` は現状スコアリングロジック (常に小文字化して比較) では未使用だが、
+# 将来の大文字小文字区別マッチング用に予約されたドキュメント済みキーのため許容する.
+_KNOWN_DEFAULTS_KEYS = frozenset(
+    {
+        "case_sensitive",
+        "max_tags",
+        "threshold",
+        "weight_title",
+        "weight_body",
+    }
+)
+
+# rules: の各エントリで load_tagger_config() が解釈する既知キー.
+_KNOWN_RULE_KEYS = frozenset({"tag", "keywords", "requires_co_tag"})
+
+
+def _reject_unknown_keys(mapping: dict[str, object], known: frozenset[str], context: str) -> None:
+    """`mapping` に `known` にないキーがあれば ValueError を送出する.
+
+    Args:
+        mapping: YAML から読んだ辞書 (defaults 全体、または rules の1エントリ).
+        known: 許容するキー集合.
+        context: エラーメッセージに含める文脈 (例: "defaults", "rules[2] (tag=e2e)").
+
+    Raises:
+        ValueError: 未知キーが1つ以上ある場合. 日本語メッセージにキー名を含める.
+    """
+    unknown = sorted(set(mapping) - known)
+    if unknown:
+        raise ValueError(
+            f"tag_rules.yaml の {context} に未知のキーがあります: {unknown}. "
+            f"既知キー: {sorted(known)}"
+        )
+
 
 @dataclass(frozen=True)
 class TagRule:
@@ -66,6 +101,11 @@ def load_tagger_config(path: Path = DEFAULT_TAG_RULES_PATH) -> TaggerConfig:
     """
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     defaults = data.get("defaults", {}) or {}
+    _reject_unknown_keys(defaults, _KNOWN_DEFAULTS_KEYS, "defaults")
+
+    raw_rules = data.get("rules") or []
+    for r in raw_rules:
+        _reject_unknown_keys(r, _KNOWN_RULE_KEYS, f"rules エントリ (tag={r.get('tag')!r})")
 
     rules = tuple(
         TagRule(
@@ -73,7 +113,7 @@ def load_tagger_config(path: Path = DEFAULT_TAG_RULES_PATH) -> TaggerConfig:
             keywords=tuple(str(k).lower() for k in (r.get("keywords") or [])),
             requires_co_tag=bool(r.get("requires_co_tag", False)),
         )
-        for r in (data.get("rules") or [])
+        for r in raw_rules
     )
 
     co_occurrence = tuple(

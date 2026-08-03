@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from qa_radar.tagger.rules import (
     CoOccurrenceRule,
     TaggerConfig,
@@ -133,3 +135,26 @@ def test_tag_rule_dataclass_is_frozen() -> None:
     rule = TagRule(tag="x", keywords=("a", "b"), requires_co_tag=False)
     with pytest.raises(dataclasses.FrozenInstanceError):
         rule.tag = "y"  # type: ignore[misc]
+
+
+def test_unknown_defaults_key_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "rules.yaml"
+    p.write_text("defaults: {mystery_key: 1, max_tags: 3}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "mystery_key" in str(exc_info.value)
+
+
+def test_unknown_rule_key_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "rules.yaml"
+    p.write_text(
+        "rules: [{tag: foo, keywords: [bar], mystery_key: 1}]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "mystery_key" in str(exc_info.value)
