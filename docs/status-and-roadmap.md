@@ -22,6 +22,13 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 >   追加し、`run_crawl.py` のサマリで N 回連続失敗ソースを workflow warning として可視化
 > - crawl.yml の失敗握りつぶし(`notify_discord.py ... || true`)— `continue-on-error` +
 >   独立 `alert` ジョブによる可視化に置き換え。`run_crawl.py` も全滅時に exit 1 を返すよう修正
+>
+> **2026-08-03 追記(3)**: PR #19(Phase C-3)で以下も解消済み。
+> - クロスソース転載検出が未配線 (P2) — クロール時に `duplicate_of` をマークし、
+>   RSS / Pages / Discord / MCP 一覧・集計から除外(検索のみ全コーパス対象を維持)
+> - DB マイグレーションが ALTER 非対応 (P3) — `MIGRATIONS` による逐次適用基盤を実装し、
+>   schema v3 (`articles.duplicate_of`) を ALTER TABLE で追加
+> - 制限: 既存 DB のバックフィルは行わないため、v3 化前から存在する転載重複は除外されない
 
 ## TL;DR
 
@@ -78,7 +85,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P0 | release 保持判定が `createdAt`(コミット日時)基準。`publishedAt` に変えるべき | `scripts/publish_release.py:91` |
 | P1 | Discord 部分失敗時、`send_batch` が件数のみ返すため「先頭 success 件を mark」が誤マーク(失敗記事の永久欠落 / 成功記事の重複再送) | `publisher/discord.py:128-158`, `scripts/notify_discord.py:96-99` |
 | P1 | README の Phase 表が古い(1〜4 が 🚧/⏳)、「30 sources」表記も実態(40)と乖離。CHANGELOG の「PyPI リリース済み」記載も未実施 | `README.md`, `README.ja.md`, `CHANGELOG.md` |
-| P2 | クロスソース転載検出 `is_cross_source_duplicate` が実装・テスト済みだが未配線 | `crawler/dedup.py:22-32` |
+| P2 | ~~クロスソース転載検出が実装・テスト済みだが未配線~~(PR #19 で解消: `resolve_cross_source_original()` を配線し出力から除外) | `crawler/dedup.py` |
 | P2 | `consecutive_errors` は書き込むだけで読む側(退避・アラート)が未実装(PR #18 で解消: `get_repeatedly_failing_sources()` + workflow warning) | `crawler/store.py:97-124` |
 | P2 | fetch 層にリトライ/バックオフなし(5xx・タイムアウトは即失敗)(PR #18 で解消: 指数バックオフ付きリトライ実装) | `crawler/fetch.py` |
 | P2 | MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%) | `src/qa_radar/server.py` |
@@ -86,7 +93,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P3 | crawl.yml の `pages_artifact` output が実際にはセットされない(echo ステップに id がない) | `.github/workflows/crawl.yml:33,97-99` |
 | P3 | FTS5 `unicode61` は日本語を分かち書きしないため、日本語の部分一致精度が低い(既知の制約) | `db.py` |
 | P3 | 非 UTF-8 フィード(Shift-JIS 等)のパースが未検証 | `crawler/parse.py` |
-| P3 | DB マイグレーションが「新テーブル追加」しか想定していない(ALTER 非対応) | `db.py:131-135` |
+| P3 | ~~DB マイグレーションが「新テーブル追加」しか想定していない(ALTER 非対応)~~(PR #19 で解消: `MIGRATIONS` による逐次適用基盤 + schema v3) | `db.py` |
 
 ---
 
@@ -131,7 +138,8 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 
 ### Phase 12 — 機能強化
 
-- **クロスソース重複検出の配線**(RSS / Pages / Discord 出力前に body_hash で抑制)
+- ~~**クロスソース重複検出の配線**(RSS / Pages / Discord 出力前に body_hash で抑制)~~
+  (PR #19 で解消。残タスク: v3 化前から DB にある転載重複のバックフィル)
 - **日本語検索の改善**: FTS5 `trigram` トークナイザの併用検討(unicode61 は CJK を分かち書きしない)
 - **タグ 0 件記事への LLM フォールバック**(tag_rules.yaml に構想のみ存在。Haiku でバッチ処理、opt-in)
 - **arxiv のノイズ削減**: cs.SE 全件は QA 以外が大半。arxiv API クエリでキーワード
