@@ -60,7 +60,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | タガー (`tagger/`) | ✅ | 10 固定タグ、キーワードスコア + source_tags + 共起の 3 層 |
 | RSS/Pages (`publisher/`) | ✅ | body 非露出を全レイヤーで徹底(47条の5 境界) |
 | Discord 通知 | ✅ | embed、429 リトライ。ただし部分失敗時の既送信マークにバグ(後述) |
-| MCP サーバー (`server.py`) | ✅ | FastMCP / stdio / 5+1 ツール。E2E テストなし(カバレッジ 55%) |
+| MCP サーバー (`server.py`) | ✅ | FastMCP / stdio / 5+1 ツール。実プロトコル E2E テストあり(PR #20 で解消: カバレッジ 55% → 94%) |
 | LLM 要約 (`summarizer/`) | ✅ | opt-in 設計(API キー + extra 必須)。Haiku 4.5 |
 | ソース定義 | ✅ 40 本 | tool 9 / blog 20 / community 6 / note 4 / paper 1。ja 16 / en 24 |
 | CI | ✅ | ruff + pytest + coverage≥80%、Python 3.11/3.12 マトリクス、直近全成功 |
@@ -88,7 +88,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P2 | ~~クロスソース転載検出が実装・テスト済みだが未配線~~(PR #19 で解消: `resolve_cross_source_original()` を配線し出力から除外) | `crawler/dedup.py` |
 | P2 | `consecutive_errors` は書き込むだけで読む側(退避・アラート)が未実装(PR #18 で解消: `get_repeatedly_failing_sources()` + workflow warning) | `crawler/store.py:97-124` |
 | P2 | fetch 層にリトライ/バックオフなし(5xx・タイムアウトは即失敗)(PR #18 で解消: 指数バックオフ付きリトライ実装) | `crawler/fetch.py` |
-| P2 | MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%) | `src/qa_radar/server.py` |
+| P2 | ~~MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%)~~(PR #20 で解消: 実プロトコル E2E テスト追加、カバレッジ 94%) | `src/qa_radar/server.py` |
 | ~~P3~~ | ~~`weight_tags_text` が YAML にあるが未実装(デッドコンフィグ)~~(2026-08-03 解消: `weight_tags_text` を削除し冒頭コメントを実態に修正)。「タグ 0 件は LLM フォールバック」コメントも未実装 | `config/tag_rules.yaml:9` |
 | P3 | crawl.yml の `pages_artifact` output が実際にはセットされない(echo ステップに id がない) | `.github/workflows/crawl.yml:33,97-99` |
 | P3 | FTS5 `unicode61` は日本語を分かち書きしないため、日本語の部分一致精度が低い(既知の制約) | `db.py` |
@@ -124,7 +124,10 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 - ~~`consecutive_errors` の配線: N 回連続失敗ソースを workflow summary で警告(自動 disable はしない)~~
   (PR #18 で解消)
 - crawl.yml の結果可視化: 追加件数・失敗ソースを GitHub Actions の Step Summary に出力
-- MCP サーバーの E2E テスト(FastMCP の in-memory クライアントで 6 ツールを実呼び出し)
+- ~~MCP サーバーの E2E テスト(FastMCP の in-memory クライアントで 6 ツールを実呼び出し)~~
+  (PR #20 で解消: `create_connected_server_and_client_session` で実 JSON-RPC 接続、
+  5 tool のスキーマ+実呼び出し・lifespan 異常系・summarize_article 条件付き登録を検証。
+  server.py カバレッジ 55% → 94%)
 - ~~週 1 の scheduled workflow で `--integration`(実フィード疎通)を実行し、死んだフィードを早期検知~~
   (Phase C-2 で解消: `.github/workflows/health.yml` — DB 信号 (`consecutive_errors` /
   新着日時) の週次 Discord レポートに加え、`--integration` 実行で実フィード疎通も検証)
