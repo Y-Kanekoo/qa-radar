@@ -35,6 +35,17 @@ class TagSummary:
     article_count: int
 
 
+@dataclass(frozen=True)
+class Digest:
+    """digest.html 表示用の週刊ダイジェスト."""
+
+    id: int
+    created_at: int
+    period_start: int
+    period_end: int
+    content_md: str
+
+
 # ---------------- 共通テンプレート ----------------
 
 _HTML_HEADER = """<!DOCTYPE html>
@@ -54,6 +65,7 @@ _HTML_HEADER = """<!DOCTYPE html>
 <p class="subtitle">QA/テスト自動化のニュースアグリゲーター</p>
 <nav>
 <a href="{root_path}">最新記事</a>
+<a href="digest.html">週刊ダイジェスト</a>
 <a href="sources.html">ソース一覧</a>
 <a href="tags.html">タグ一覧</a>
 <a href="feed.atom">Atom</a>
@@ -202,6 +214,66 @@ def render_tags_page(tags: list[TagSummary], *, source_count: int | None = None)
     )
 
 
+def _render_digest_markdown(content_md: str) -> str:
+    """許可した最小限の Markdown を HTML に変換する.
+
+    見出し (`#` / `##`)、箇条書き (`-`)、通常行だけを扱い、すべての本文を
+    `html.escape` に通す。リンク等の Markdown 構文は意図的に解釈しない。
+    """
+    rendered: list[str] = []
+    in_list = False
+
+    def close_list() -> None:
+        nonlocal in_list
+        if in_list:
+            rendered.append("</ul>")
+            in_list = False
+
+    for line in content_md.splitlines():
+        if line.startswith("## "):
+            close_list()
+            rendered.append(f"<h3>{escape(line[3:])}</h3>")
+        elif line.startswith("# "):
+            close_list()
+            rendered.append(f"<h2>{escape(line[2:])}</h2>")
+        elif line.startswith("- "):
+            if not in_list:
+                rendered.append("<ul>")
+                in_list = True
+            rendered.append(f"<li>{escape(line[2:])}</li>")
+        elif line.strip():
+            close_list()
+            rendered.append(f"<p>{escape(line)}</p>")
+        else:
+            close_list()
+    close_list()
+    return "\n".join(rendered)
+
+
+def render_digest_page(digest: Digest | None, *, source_count: int | None = None) -> str:
+    """最新の週刊ダイジェストを表示する HTML を返す."""
+    if digest is None:
+        body = (
+            '<section class="digest">'
+            "<h2>週刊 LLM ダイジェスト</h2>"
+            "<p>ダイジェストはまだ生成されていません。</p>"
+            "</section>"
+        )
+    else:
+        period = f"{_format_date(digest.period_start)}〜{_format_date(digest.period_end)}"
+        body = (
+            '<section class="digest">'
+            f'<p class="meta">対象期間: {period}</p>'
+            f"{_render_digest_markdown(digest.content_md)}"
+            "</section>"
+        )
+    return (
+        _render_header("週刊ダイジェスト — qa-radar", source_count=source_count)
+        + body
+        + _render_footer()
+    )
+
+
 # ---------------- 書き出し ----------------
 
 
@@ -213,10 +285,12 @@ def write_html(content: str, output_path: Path) -> Path:
 
 # 公開 URL ヘルパ (将来 about.html などで利用)
 __all__ = [
+    "Digest",
     "FeedItem",
     "SourceSummary",
     "TagSummary",
     "main_feed_url",
+    "render_digest_page",
     "render_index",
     "render_sources_page",
     "render_tags_page",
