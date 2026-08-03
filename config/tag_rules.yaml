@@ -1,7 +1,7 @@
 # qa-radar タグ付けルール
 #
 # 適用方針:
-#   1. 各記事に対し、title (重み2) + body (重み1) + tags_text (重み1) を小文字化して
+#   1. 各記事に対し、title (重み2) + body (重み1) を小文字化して
 #      keywords を部分一致でマッチ
 #   2. 各 tag のスコアが threshold 以上で確定（デフォルト2）
 #   3. 1 記事あたり最大 max_tags 個まで（スコア降順）
@@ -22,7 +22,6 @@ defaults:
   threshold: 2
   weight_title: 2
   weight_body: 1
-  weight_tags_text: 1
 
 rules:
   - tag: e2e

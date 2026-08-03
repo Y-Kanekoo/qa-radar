@@ -148,6 +148,52 @@ async def test_returns_error_after_retry_limit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_does_not_retry_unsupported_protocol() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        raise httpx.UnsupportedProtocol("未対応のプロトコル")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        r = await fetch_feed(
+            "https://example.com/feed",
+            client=client,
+            retry_base_delay=0,
+        )
+
+    assert request_count == 1
+    assert r.error is not None
+    assert "未対応のプロトコル" in r.error
+    assert r.status_code == 0
+
+
+@pytest.mark.asyncio
+async def test_retries_local_protocol_error_then_fails() -> None:
+    """LocalProtocolError はコネクションプール再利用時に一過性で起こりうるため、
+    ConnectError 等と同様にリトライ対象とする(恒久エラー扱いにはしない)."""
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        raise httpx.LocalProtocolError("クライアント側のプロトコル違反")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        r = await fetch_feed(
+            "https://example.com/feed",
+            client=client,
+            retry_base_delay=0,
+        )
+
+    assert r.error is not None
+    assert "クライアント側のプロトコル違反" in r.error
+    assert r.status_code == 0
+    assert request_count == 3
+
+
+@pytest.mark.asyncio
 async def test_does_not_retry_4xx() -> None:
     request_count = 0
 

@@ -82,7 +82,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | P2 | `consecutive_errors` は書き込むだけで読む側(退避・アラート)が未実装(PR #18 で解消: `get_repeatedly_failing_sources()` + workflow warning) | `crawler/store.py:97-124` |
 | P2 | fetch 層にリトライ/バックオフなし(5xx・タイムアウトは即失敗)(PR #18 で解消: 指数バックオフ付きリトライ実装) | `crawler/fetch.py` |
 | P2 | MCP サーバーの Context 経由呼び出し・lifespan の E2E テストなし(server.py 55%) | `src/qa_radar/server.py` |
-| P3 | `weight_tags_text` が YAML にあるが未実装(デッドコンフィグ)。「タグ 0 件は LLM フォールバック」コメントも未実装 | `config/tag_rules.yaml:4,9` |
+| ~~P3~~ | ~~`weight_tags_text` が YAML にあるが未実装(デッドコンフィグ)~~(2026-08-03 解消: `weight_tags_text` を削除し冒頭コメントを実態に修正)。「タグ 0 件は LLM フォールバック」コメントも未実装 | `config/tag_rules.yaml:9` |
 | P3 | crawl.yml の `pages_artifact` output が実際にはセットされない(echo ステップに id がない) | `.github/workflows/crawl.yml:33,97-99` |
 | P3 | FTS5 `unicode61` は日本語を分かち書きしないため、日本語の部分一致精度が低い(既知の制約) | `db.py` |
 | P3 | 非 UTF-8 フィード(Shift-JIS 等)のパースが未検証 | `crawler/parse.py` |
@@ -121,13 +121,16 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 - 週 1 の scheduled workflow で `--integration`(実フィード疎通)を実行し、死んだフィードを早期検知
 - (PR #18 レビューでの積み残し、優先度低) `httpx.TransportError` を毎回律儀にリトライしており、
   ホスト全体がダウンしている場合の恒久エラー検知・早期打ち切り(サーキットブレーカー)がない
-- (PR #18 レビューでの積み残し) `.github/workflows/*.yml` の `actionlint` / `scripts/*.sh` の
-  `shellcheck` を CI に導入し、YAML/シェル構文エラーを自動検知できるようにする
+  (2026-08-03 一部前進: `UnsupportedProtocol` のみリトライ対象外化。ホスト単位サーキットブレーカーは未着手)
+- ~~(PR #18 レビューでの積み残し) `.github/workflows/*.yml` の `actionlint` / `scripts/*.sh` の
+  `shellcheck` を CI に導入し、YAML/シェル構文エラーを自動検知できるようにする~~
+  (2026-08-03 解消: `workflow-lint` ジョブで actionlint(バージョン固定)+ shellcheck を導入)
 - (PR #18 レビューでの積み残し) 全ソース失敗(exit 1)で crawl.yml が pipefail により早期停止すると、
   当該実行中に増分した `consecutive_errors` が DB スナップショット公開(Publish DB snapshot)前に
   失われ、次回実行時に古い DB から再開して連続失敗カウントが巻き戻る可能性がある
-- (PR #18 レビューでの積み残し) `deploy` / `alert` ジョブに `timeout-minutes` が未設定
-  (`crawl-and-build` のみ 30 分を設定済み)
+- ~~(PR #18 レビューでの積み残し) `deploy` / `alert` ジョブに `timeout-minutes` が未設定
+  (`crawl-and-build` のみ 30 分を設定済み)~~
+  (2026-08-03 解消: `deploy` に10分、`alert` に5分の `timeout-minutes` を追加)
 
 ### Phase 12 — 機能強化
 

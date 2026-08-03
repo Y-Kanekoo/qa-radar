@@ -15,6 +15,7 @@ permissions:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -22,6 +23,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: jq の存在確認
+        # tests/unit/test_notify_alert.py の requires_jq マーカーは jq 未検出時に
+        # テストをサイレントにスキップするだけで CI を失敗させないため、
+        # このジョブで実際に requires_jq テストを実行する前提の jq が
+        # 使えることを明示的に検証する
+        run: command -v jq
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -49,3 +57,38 @@ jobs:
 
       - name: Coverage threshold (>=80%)
         run: uv run coverage report --fail-under=80
+
+  workflow-lint:
+    name: Workflow lint (actionlint + shellcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install actionlint (バージョン固定 + sha256 照合)
+        # download-actionlint.bash 経由のタグ参照 curl|bash はタグが移動可能で
+        # 実質不変ではなく、取得物のチェックサム検証も行わないため、
+        # GitHub Releases のバイナリ tarball を直接取得し sha256 で照合する。
+        # バージョン・チェックサムはいずれもこのファイルに固定値で記載する
+        # (公式チェックサム: https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_checksums.txt)
+        env:
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum -c -
+          tar xzf "${archive}" actionlint
+          echo "${PWD}" >> "$GITHUB_PATH"
+
+      - name: actionlint (全ワークフロー + shellcheck 連携)
+        # ubuntu-latest には shellcheck がプリインストール済みのため、
+        # actionlint は自動検出して run: ブロックのシェルも検査する
+        run: actionlint -color
+
+      - name: shellcheck (scripts/*.sh)
+        run: shellcheck scripts/*.sh
