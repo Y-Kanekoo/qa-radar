@@ -8,6 +8,11 @@
     英語は porter stemming, アクセント記号は除去. 日本語は分かち書きしないが
     タイトル・タグの完全一致検索は機能する.
 - `schema_version` テーブル: 将来のマイグレーション用バージョン番号を保持
+
+**注意 (foot-gun)**: `_SCHEMA_SQL` は **新規 DB の作成にしか使われない**.
+既存 DB には一切流れないため、テーブル・インデックス・トリガを追加するときは
+`_SCHEMA_SQL` と `MIGRATIONS` の **両方** に書くこと. 片方だけだと、新規 DB では
+存在するのに既存 DB には永久に作られないオブジェクトが生まれる.
 """
 
 from __future__ import annotations
@@ -139,6 +144,7 @@ def _migrate_to_v3(conn: sqlite3.Connection) -> None:
 
 
 # キーは適用後のバージョン。将来の変更も 4: migration の形で逐次追加する。
+# 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
     2: _migrate_to_v2,
     3: _migrate_to_v3,
@@ -146,18 +152,36 @@ MIGRATIONS: dict[int, Migration] = {
 
 
 def _get_schema_version(conn: sqlite3.Connection) -> int | None:
-    """バージョン行を返す. テーブルまたは行が無い新規 DB では None."""
+    """バージョンを返す. schema_version テーブル自体が無い新規 DB では None.
+
+    Raises:
+        RuntimeError: テーブルはあるのにバージョン行が無い場合. 空の新規 DB と
+            区別できずに最新スキーマを刻むと、既存 articles に列が追加されないまま
+            v3 と記録されて自己修復不能になるため、明示的に異常として止める.
+    """
     table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
     ).fetchone()
     if table is None:
         return None
     row = conn.execute("SELECT version FROM schema_version").fetchone()
-    return int(row["version"]) if row is not None else None
+    if row is None:
+        raise RuntimeError(
+            "schema_version テーブルにバージョン行がありません. DB が破損している可能性が"
+            "あります. GitHub Releases の data-* スナップショットから復元してください "
+            "(uv run python scripts/publish_release.py --mode download "
+            "--repo Y-Kanekoo/qa-radar --download-to data/articles.db)."
+        )
+    return int(row["version"])
 
 
 def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
-    """current_version の次から SCHEMA_VERSION まで逐次適用する."""
+    """current_version の次から SCHEMA_VERSION まで逐次適用する.
+
+    別プロセス (常駐 MCP サーバ等) が同時に init_db を実行しても二重適用しないよう、
+    書き込みロックを取る `BEGIN IMMEDIATE` で開始し、トランザクション内でバージョンを
+    読み直してから適用する.
+    """
     for target_version in range(current_version + 1, SCHEMA_VERSION + 1):
         migration = MIGRATIONS.get(target_version)
         if migration is None:
@@ -165,8 +189,13 @@ def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
                 f"スキーマ v{target_version} へのマイグレーションが登録されていません"
             )
         # sqlite3 は DDL の前に暗黙 BEGIN しないため、明示的に開始する。
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
         try:
+            latest_version = _get_schema_version(conn)
+            if latest_version is not None and latest_version >= target_version:
+                # 直前に別プロセスが適用済み。二重適用を避けて次へ進む。
+                conn.rollback()
+                continue
             migration(conn)
             conn.execute("UPDATE schema_version SET version = ?", (target_version,))
         except Exception:
@@ -186,6 +215,10 @@ def init_db(path: Path) -> sqlite3.Connection:
 
     Returns:
         オープンした sqlite3.Connection. 利用後は呼び出し側で `close()` する.
+
+    Raises:
+        RuntimeError: DB がコードより新しい場合、マイグレーションが未登録の場合、
+            または schema_version テーブルにバージョン行が無い破損状態の場合.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False)
@@ -197,7 +230,9 @@ def init_db(path: Path) -> sqlite3.Connection:
     try:
         current_version = _get_schema_version(conn)
         if current_version is None:
-            # 新規 DB は最新 CREATE 文で直接作成し、過去のマイグレーションを経ない。
+            # schema_version テーブル自体が無い = 完全な新規 DB。最新 CREATE 文で
+            # 直接作成し、過去のマイグレーションを経ない。
+            # (テーブルはあるが行が無いケースは _get_schema_version が RuntimeError)
             conn.executescript(_SCHEMA_SQL)
             conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
             conn.commit()
