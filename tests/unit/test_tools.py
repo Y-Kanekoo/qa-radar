@@ -111,6 +111,128 @@ def test_search_returns_matching_articles(tmp_path: Path) -> None:
         conn.close()
 
 
+@pytest.mark.parametrize("query", ["テスト", "自動化"])
+def test_search_trigram_matches_japanese_body(query: str, tmp_path: Path) -> None:
+    """3文字以上の日本語を和文 body の途中から検索できる."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(
+                sid,
+                "ja",
+                title="日本語の記事",
+                body="継続的なソフトウェアテストと自動化を紹介します",
+            ),
+        )
+
+        result = search_articles_impl(conn, query)
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/ja"]
+    finally:
+        conn.close()
+
+
+def test_search_short_japanese_term_uses_like_and_orders_by_published_at(
+    tmp_path: Path,
+) -> None:
+    """2文字語は LIKE で検索し、公開日時の新しい順に返す."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(sid, "old", body="品質を高める", published_at=1700000000),
+        )
+        insert_article(
+            conn,
+            _article(sid, "new", body="品質保証の実践", published_at=1700000100),
+        )
+
+        result = search_articles_impl(conn, "品質")
+
+        assert [item["url"] for item in result["items"]] == [
+            "https://e.com/new",
+            "https://e.com/old",
+        ]
+    finally:
+        conn.close()
+
+
+def test_search_like_requires_every_term_across_searchable_columns(tmp_path: Path) -> None:
+    """LIKE 経路でも3カラム間は OR、語間は AND として扱う."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(sid, "both", title="品質戦略", body="継続的な改善を進めます"),
+        )
+        insert_article(conn, _article(sid, "one", title="品質戦略", body="現状を解説します"))
+
+        result = search_articles_impl(conn, "品質 改善")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/both"]
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    ("query", "literal_title", "wildcard_title"),
+    [
+        ("%", "カバレッジ 100%", "カバレッジ 1000"),
+        ("_", "under_score", "underXscore"),
+    ],
+)
+def test_search_like_escapes_wildcards(
+    query: str,
+    literal_title: str,
+    wildcard_title: str,
+    tmp_path: Path,
+) -> None:
+    """LIKE の % と _ を文字として扱い、ワイルドカードを暴発させない."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "literal", title=literal_title))
+        insert_article(conn, _article(sid, "wildcard", title=wildcard_title))
+
+        result = search_articles_impl(conn, query)
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/literal"]
+    finally:
+        conn.close()
+
+
+def test_search_route_boundary_is_observable_in_sql(tmp_path: Path) -> None:
+    """全語3文字以上は FTS、1語でも2文字なら全語 LIKE を使う."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(sid, "ja", body="ソフトウェアテストの自動化と品質改善"),
+        )
+        statements: list[str] = []
+        conn.set_trace_callback(statements.append)
+
+        fts_result = search_articles_impl(conn, "テスト 自動化")
+
+        assert len(fts_result["items"]) == 1
+        assert any("FROM articles_fts JOIN articles" in sql for sql in statements)
+
+        statements.clear()
+        like_result = search_articles_impl(conn, "テスト 品質")
+
+        assert len(like_result["items"]) == 1
+        assert any("FROM articles a JOIN sources" in sql for sql in statements)
+        assert not any("FROM articles_fts JOIN articles" in sql for sql in statements)
+    finally:
+        conn.set_trace_callback(None)
+        conn.close()
+
+
 def test_search_filters_by_tag(tmp_path: Path) -> None:
     conn = _setup_db(tmp_path)
     try:

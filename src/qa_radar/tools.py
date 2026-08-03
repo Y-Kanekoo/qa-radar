@@ -41,6 +41,11 @@ def _fts5_safe_query(query: str) -> str:
     return " ".join('"' + t.replace('"', '""') + '"' for t in terms)
 
 
+def _escape_like_term(term: str) -> str:
+    """LIKE の検索語に含まれるエスケープ文字とワイルドカードを無効化する."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _iso_to_unix(iso: str) -> int:
     """ISO8601 文字列を unix 秒へ変換. Z 表記もサポート."""
     if iso.endswith("Z"):
@@ -80,15 +85,44 @@ def search_articles_impl(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """記事を全文検索する (FTS5 + BM25)."""
+    """記事を全文検索する.
+
+    全語が3文字以上なら FTS5 + BM25、短い語を1つでも含む場合は LIKE を使う。
+    LIKE 経路では BM25 スコアを利用できないため、公開日時の降順で返す。
+    """
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
 
     # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
-    where: list[str] = ["articles_fts MATCH ?"]
-    params: list[Any] = [_fts5_safe_query(query)]
+    terms = query.split()
+    use_fts = not terms or all(len(term) >= 3 for term in terms)
+    where: list[str] = []
+    params: list[Any] = []
+
+    if use_fts:
+        where.append("articles_fts MATCH ?")
+        params.append(_fts5_safe_query(query))
+        from_clause = (
+            "articles_fts JOIN articles a ON a.id = articles_fts.rowid "
+            "JOIN sources s ON a.source_id = s.id"
+        )
+        order_by = (
+            f"bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})"
+        )
+    else:
+        # trigram は短語が1つでもあると全体が0件になる。検索意図を静かに落とさず、
+        # 全語を LIKE に切り替える。約2千件規模の全走査は許容済み。
+        for term in terms:
+            where.append(
+                "(a.title LIKE ? ESCAPE '\\' OR a.body LIKE ? ESCAPE '\\' "
+                "OR a.tags_json LIKE ? ESCAPE '\\')"
+            )
+            pattern = f"%{_escape_like_term(term)}%"
+            params.extend([pattern, pattern, pattern])
+        from_clause = "articles a JOIN sources s ON a.source_id = s.id"
+        order_by = "a.published_at DESC"
 
     if date_from:
         where.append("a.published_at >= ?")
@@ -104,10 +138,9 @@ def search_articles_impl(
     sql = f"""
         SELECT a.id, a.title, a.url, a.snippet, a.author, a.published_at, a.tags_json,
                s.name AS source_name
-        FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid
-        JOIN sources s ON a.source_id = s.id
+        FROM {from_clause}
         WHERE {where_clause}
-        ORDER BY bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})
+        ORDER BY {order_by}
         LIMIT ? OFFSET ?
     """
     # limit+1 を取得して has_more を判定

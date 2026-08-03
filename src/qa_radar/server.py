@@ -120,7 +120,8 @@ def search_articles(
 
     Returns:
         {items: [{id, title, url, snippet, ...}], has_more, next_offset}.
-        BM25 でランキング (title 重み5、tags 2、body 1).
+        全語が3文字以上なら BM25 でランキング (title 重み5、tags 2、body 1)。
+        短い語を含む場合は LIKE 検索となり、公開日時の降順で返す。
     """
     db = ctx.request_context.lifespan_context.db
     return search_articles_impl(

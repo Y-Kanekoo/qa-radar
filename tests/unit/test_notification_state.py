@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from qa_radar.crawler.store import ArticleRow, insert_article, upsert_source
-from qa_radar.db import init_db
+from qa_radar.db import SCHEMA_VERSION, init_db
 from qa_radar.publisher.notification_state import (
     DISCORD_CHANNEL,
     fetch_unnotified,
@@ -218,7 +218,7 @@ def test_latest_schema_includes_notification_table(tmp_path: Path) -> None:
         "SELECT name FROM sqlite_master WHERE name='article_notifications'"
     ).fetchall()
     assert len(rows) == 1
-    # version も最新の3に設定されている
+    # version も最新に設定されている
     row = conn.execute("SELECT version FROM schema_version").fetchone()
-    assert row["version"] == 3
+    assert row["version"] == SCHEMA_VERSION
     conn.close()
