@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Autify ブログ日本語版はRSSフィード自体が見つからず(サイトが403を返しegressポリシーでも
     ブロック対象)、見送り
   - 44 ソース内訳: tool 13 / blog 20 / community 6 / note 4 / paper 1 (language: ja 16 / en 28)
+- **Phase C-2**: ソース健全性の週次 Discord レポート。実フィードへの追加アクセスは行わず、
+  本番 cron (`crawl.yml`) が既に DB に書き込んでいる信号を集計するだけにとどめる設計
+  - `.github/workflows/health.yml` (新規): 毎週月曜 09:00 JST + `workflow_dispatch`。
+    DB スナップショット復元 → `scripts/health_report.py` → 実フィード疎通の統合テスト
+    (`pytest --integration -v -m integration`、代表2ソースのみ) の順で実行
+  - `src/qa_radar/crawler/store.py`: `get_sources_with_errors` / `get_source_staleness` /
+    `get_overall_stats` を追加 (週次レポート専用の読み取り関数)
+  - `scripts/health_report.py` (新規): 上記を集計して digest を組み立て Discord へ送信する CLI。
+    429 Rate Limit は Retry-After に従って再送 (`src/qa_radar/publisher/discord.py` と同方針)。
+    webhook URL は事実上のシークレットのため、ログ・例外経路のいずれにも出力しない
+  - `docs/operations.md`: 「週次ヘルスレポートの見方」節を追加
 
 ### Fixed
 
