@@ -76,8 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- 全文検索を日本語部分一致に対応した FTS5 trigram へ一本化。全検索語が3文字以上なら
-  BM25 順、1語でも3文字未満なら全語をエスケープ済み LIKE で検索し公開日時順で返す
+- 全文検索を FTS5 trigram とエスケープ済み LIKE のハイブリッド方式へ変更。全検索語が
+  3文字以上なら FTS5、長語・短語の混在時は長語を FTS5 で絞り込み短語を LIKE の AND
+  条件として追加し、いずれも BM25 順で返す。全語が3文字未満の場合のみ、全語を LIKE
+  で検索して公開日時順で返す
 
 ### Fixed
 

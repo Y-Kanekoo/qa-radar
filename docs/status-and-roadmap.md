@@ -56,7 +56,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | コンポーネント | 実装 | 品質所見 |
 |---|---|---|
 | クローラー (`crawler/`) | ✅ | httpx + ETag/If-Modified-Since、robots.txt 遵守、エラー集約設計。リトライなし(PR #18 で解消) |
-| DB (`db.py`) | ✅ | SQLite WAL + FTS5(外部 content)、schema v2、前方マイグレーション |
+| DB (`db.py`) | ✅ | SQLite WAL + FTS5(外部 content)、schema v4、前方マイグレーション |
 | タガー (`tagger/`) | ✅ | 10 固定タグ、キーワードスコア + source_tags + 共起の 3 層 |
 | RSS/Pages (`publisher/`) | ✅ | body 非露出を全レイヤーで徹底(47条の5 境界) |
 | Discord 通知 | ✅ | embed、429 リトライ。ただし部分失敗時の既送信マークにバグ(後述) |
