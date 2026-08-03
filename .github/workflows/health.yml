@@ -19,6 +19,10 @@ jobs:
     name: Health report + integration smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      digest_outcome: ${{ steps.digest.outcome }}
+      digest_generated: ${{ steps.digest.outputs.generated }}
+      discord_failed: ${{ steps.digest.outputs.discord_failed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,13 +74,16 @@ jobs:
       - name: Weekly LLM digest (生成 + Discord送信)
         id: digest
         if: hashFiles('data/articles.db') != ''
+        # Discord 失敗後も、保存済みダイジェストを後続の Release 公開で永続化する。
+        continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: uv run python scripts/weekly_digest.py
 
       - name: Publish DB snapshot with digest
-        if: ${{ steps.digest.outcome == 'success' && steps.digest.outputs.generated == 'true' }}
+        # 明示的に success() を外し、digest の Discord 配信だけが失敗した場合も公開する。
+        if: ${{ !cancelled() && steps.digest.outputs.generated == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -97,7 +104,7 @@ jobs:
   alert:
     name: Alert on failure
     needs: health-report
-    if: ${{ !cancelled() && needs.health-report.result == 'failure' }}
+    if: ${{ !cancelled() && (needs.health-report.result == 'failure' || needs.health-report.outputs.digest_outcome == 'failure' || needs.health-report.outputs.discord_failed == 'true') }}
     runs-on: ubuntu-latest
     # checkout (読み取り専用) と Discord への通知送信しか行わないため、
     # ワークフロー全体の permissions を継承せず最小権限に絞る (crawl.yml の alert ジョブと同パターン)
@@ -113,10 +120,44 @@ jobs:
           REPOSITORY_NAME: ${{ github.repository }}
           WORKFLOW_NAME: ${{ github.workflow }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          HEALTH_RESULT: ${{ needs.health-report.result }}
+          DIGEST_OUTCOME: ${{ needs.health-report.outputs.digest_outcome }}
+          DIGEST_GENERATED: ${{ needs.health-report.outputs.digest_generated }}
+          DISCORD_FAILED: ${{ needs.health-report.outputs.discord_failed }}
         run: |
+          job_name=""
+          status_description=""
+
+          append_reason() {
+            if [ -z "$job_name" ]; then
+              job_name="$1"
+            else
+              job_name="$job_name, $1"
+            fi
+            if [ -z "$status_description" ]; then
+              status_description="$2"
+            else
+              status_description="$status_description / $2"
+            fi
+          }
+
+          if [ "$HEALTH_RESULT" = "failure" ]; then
+            append_reason "health-report" "週次ヘルスチェックジョブ(health-report)が失敗しました"
+          fi
+          if [ "$DISCORD_FAILED" = "true" ]; then
+            append_reason "health-report(ダイジェスト通知)" "週刊LLMダイジェストのDiscord配信が失敗しました(DB保存済み)"
+          elif [ "$DIGEST_OUTCOME" = "failure" ]; then
+            append_reason "health-report(ダイジェスト生成)" "週刊LLMダイジェストの生成またはDB保存が失敗しました"
+          fi
+
+          if [ -z "$status_description" ]; then
+            job_name="unknown"
+            status_description="不明な理由でアラートが発火しました"
+          fi
+
           scripts/notify_alert.sh \
             "$REPOSITORY_NAME" \
             "$WORKFLOW_NAME" \
-            "health-report" \
+            "$job_name" \
             "$RUN_URL" \
-            "週次ソース健全性レポート(health-report)が失敗しました"
+            "$status_description"

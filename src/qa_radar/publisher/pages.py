@@ -6,12 +6,15 @@ HTML エスケープは `html.escape` で対応する.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
 from qa_radar.publisher.rss import FeedItem, main_feed_url, tag_feed_url
+
+_DIGEST_URL_RE = re.compile(r"https?://\S+")
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,24 @@ def _format_date(unix_seconds: int) -> str:
     return datetime.fromtimestamp(unix_seconds, tz=UTC).strftime("%Y-%m-%d")
 
 
+def format_digest_meta(
+    *,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+    article_count: int,
+    source_count: int,
+) -> str:
+    """コード集計値からダイジェストの期間・件数ヘッダを組み立てる."""
+    period = f"{_format_date(period_start)}〜{_format_date(period_end)}"
+    introduced_count = min(article_count, len(set(_DIGEST_URL_RE.findall(content_md))))
+    omitted_count = article_count - introduced_count
+    return (
+        f"対象期間: {period} / 全{article_count}件・{source_count}ソース / "
+        f"主要{introduced_count}件を紹介（他{omitted_count}件）"
+    )
+
+
 # ---------------- 個別ページ ----------------
 
 
@@ -217,8 +238,8 @@ def render_tags_page(tags: list[TagSummary], *, source_count: int | None = None)
 def _render_digest_markdown(content_md: str) -> str:
     """許可した最小限の Markdown を HTML に変換する.
 
-    見出し (`#` / `##`)、箇条書き (`-`)、通常行だけを扱い、すべての本文を
-    `html.escape` に通す。リンク等の Markdown 構文は意図的に解釈しない。
+    見出し (`#` / `##`)、箇条書き (`-`)、通常行だけを扱う。すべての本文を
+    `html.escape` に通した後、http/https URL だけをリンク化する。
     """
     rendered: list[str] = []
     in_list = False
@@ -229,28 +250,41 @@ def _render_digest_markdown(content_md: str) -> str:
             rendered.append("</ul>")
             in_list = False
 
+    def render_text(text: str) -> str:
+        escaped = escape(text)
+        return _DIGEST_URL_RE.sub(
+            lambda match: f'<a href="{match.group(0)}" rel="noopener">{match.group(0)}</a>',
+            escaped,
+        )
+
     for line in content_md.splitlines():
         if line.startswith("## "):
             close_list()
-            rendered.append(f"<h3>{escape(line[3:])}</h3>")
+            rendered.append(f"<h3>{render_text(line[3:])}</h3>")
         elif line.startswith("# "):
             close_list()
-            rendered.append(f"<h2>{escape(line[2:])}</h2>")
+            rendered.append(f"<h2>{render_text(line[2:])}</h2>")
         elif line.startswith("- "):
             if not in_list:
                 rendered.append("<ul>")
                 in_list = True
-            rendered.append(f"<li>{escape(line[2:])}</li>")
+            rendered.append(f"<li>{render_text(line[2:])}</li>")
         elif line.strip():
             close_list()
-            rendered.append(f"<p>{escape(line)}</p>")
+            rendered.append(f"<p>{render_text(line)}</p>")
         else:
             close_list()
     close_list()
     return "\n".join(rendered)
 
 
-def render_digest_page(digest: Digest | None, *, source_count: int | None = None) -> str:
+def render_digest_page(
+    digest: Digest | None,
+    *,
+    source_count: int | None = None,
+    article_count: int | None = None,
+    digest_source_count: int | None = None,
+) -> str:
     """最新の週刊ダイジェストを表示する HTML を返す."""
     if digest is None:
         body = (
@@ -260,10 +294,20 @@ def render_digest_page(digest: Digest | None, *, source_count: int | None = None
             "</section>"
         )
     else:
-        period = f"{_format_date(digest.period_start)}〜{_format_date(digest.period_end)}"
+        if article_count is not None and digest_source_count is not None:
+            meta = format_digest_meta(
+                period_start=digest.period_start,
+                period_end=digest.period_end,
+                content_md=digest.content_md,
+                article_count=article_count,
+                source_count=digest_source_count,
+            )
+        else:
+            period = f"{_format_date(digest.period_start)}〜{_format_date(digest.period_end)}"
+            meta = f"対象期間: {period}"
         body = (
             '<section class="digest">'
-            f'<p class="meta">対象期間: {period}</p>'
+            f'<p class="meta">{escape(meta)}</p>'
             f"{_render_digest_markdown(digest.content_md)}"
             "</section>"
         )
@@ -289,6 +333,7 @@ __all__ = [
     "FeedItem",
     "SourceSummary",
     "TagSummary",
+    "format_digest_meta",
     "main_feed_url",
     "render_digest_page",
     "render_index",

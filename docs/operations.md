@@ -118,15 +118,18 @@ retention (自動削除) を実装しない。
 ## 週刊 LLM ダイジェストの運用
 
 `.github/workflows/health.yml` は毎週月曜に `scripts/weekly_digest.py` を実行する。GitHub
-Releases から復元した DB の直近7日・最大120件の非重複記事を対象に、Claude Haiku が日本語の
-週報を生成する。入力は公開済みのタイトル、100字以内のスニペット、タグ、ソース名、元URLだけで、
+Releases から復元した DB の直近7日の非重複記事を SQL で集計し、そのうち最新120件を入力として、
+Claude Haiku が主要記事を約30件に厳選した日本語の週報を生成する。期間・全記事数・ソース数・
+紹介外の記事数は LLM に計算させず、SQL の集計値と生成結果の URL 数からコードで表示する。
+入力は公開済みのタイトル、100字以内のスニペット、タグ、ソース名、元URLだけで、
 記事本文は取得も送信もしない。生成結果は schema v5 の `digests` テーブルへ保存し、stdout と
 `DISCORD_WEBHOOK_URL` へ出力する。次回の Pages ビルドでは最新1件を `digest.html` に表示する。
 
 必要な Secrets は `ANTHROPIC_API_KEY` と `DISCORD_WEBHOOK_URL`。前者が未設定または `anthropic`
 が利用できない場合は warning のうえ exit 0 で生成をスキップする。後者が未設定の場合は DB 保存まで
-行い、Discord 配信だけをスキップする。生成に成功したときだけ、同じ workflow 内で
-`publish_release.py --mode full --retention-days 7` を実行してダイジェスト入り DB を永続化する。
+行い、Discord 配信だけをスキップする。DB 保存に成功したときは Discord 配信が失敗しても、同じ
+workflow 内で `publish_release.py --mode full --retention-days 7` を実行してダイジェスト入り DB を
+永続化する。生成結果が空、または最大トークン数で途中終了した場合は DB へ保存しない。
 `health.yml` と `crawl.yml` は concurrency group `crawl` を共有し、同じ DB スナップショットを
 同時に更新しない。
 
@@ -136,7 +139,14 @@ Releases から復元した DB の直近7日・最大120件の非重複記事を
 - `週刊ダイジェストの生成または DB 保存に失敗`: Anthropic API の障害・利用制限、または DB の
   復元/マイグレーション異常を確認する。シークレット保護のため API の例外本文はログに出さない
 - `Discord 配信に失敗`: ダイジェストの DB 保存後に webhook 配信が失敗した状態。Webhook の失効や
-  429 継続を確認する。このステップは非0終了となり `alert` ジョブの対象になる
+  429 継続を確認する。ステップは非0終了となり `alert` ジョブの対象になるが、保存済み DB は後続で
+  Release に公開される
+
+壊れたダイジェストを含むスナップショットを公開した場合は、該当する `data-*` release を削除し、
+直前の正常な release を最新版として復元する。
+
+月曜の定期実行と手動 dispatch を重ねると、共有 concurrency group の pending は1本までのため、
+先に pending だった run が通知なくキャンセルされる場合がある。実行一覧を確認してから手動起動する。
 
 ローカルで保存内容だけを確認する場合は、`ANTHROPIC_API_KEY` を環境変数へ設定して次を実行する。
 
