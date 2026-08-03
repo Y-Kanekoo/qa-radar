@@ -25,7 +25,7 @@ from qa_radar.tools import _word_boundary_match
 
 logger = logging.getLogger("qa_radar.db")
 
-SCHEMA_VERSION = 4  # v4: FTS5 を trigram トークナイザで再構築
+SCHEMA_VERSION = 5  # v5: 週刊 LLM ダイジェストを保存
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS article_notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel);
 CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id);
+
+-- v5 (Phase D1): 週刊 LLM ダイジェスト. 公開済みメタデータから生成した Markdown のみ保存する.
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    content_md TEXT NOT NULL
+);
 """
 
 Migration = Callable[[sqlite3.Connection], None]
@@ -167,12 +176,28 @@ def _migrate_to_v4(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('rebuild')")
 
 
+def _migrate_to_v5(conn: sqlite3.Connection) -> None:
+    """v4 から v5 へ週刊 LLM ダイジェスト保存テーブルを追加する."""
+    conn.execute(
+        """
+        CREATE TABLE digests (
+            id INTEGER PRIMARY KEY,
+            created_at INTEGER NOT NULL,
+            period_start INTEGER NOT NULL,
+            period_end INTEGER NOT NULL,
+            content_md TEXT NOT NULL
+        )
+        """
+    )
+
+
 # キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
 # 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
     2: _migrate_to_v2,
     3: _migrate_to_v3,
     4: _migrate_to_v4,
+    5: _migrate_to_v5,
 }
 
 
