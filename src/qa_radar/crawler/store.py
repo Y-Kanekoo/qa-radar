@@ -157,6 +157,107 @@ def get_repeatedly_failing_sources(
     return [(str(row["slug"]), int(row["consecutive_errors"])) for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# 週次ヘルスレポート (scripts/health_report.py) 用の読み取り関数.
+#
+# 実フィードへ追加でアクセスする死活監視は行わず、本番 cron (crawl.yml) が
+# 既に書き込んでいる signal (consecutive_errors / published_at / fetched_at) を
+# 集計するだけにとどめる (取得経路の二重化を避ける設計判断)。
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SourceErrorStatus:
+    """週次ヘルスレポート用: 連続エラー中のソース1件分."""
+
+    slug: str
+    consecutive_errors: int
+
+
+def get_sources_with_errors(conn: sqlite3.Connection) -> list[SourceErrorStatus]:
+    """consecutive_errors > 0 の有効なソースを、エラー回数の多い順に返す.
+
+    `get_repeatedly_failing_sources()` (閾値以上のみ対象) と異なり、1回でも
+    連続失敗しているソースを網羅する (週次ヘルスレポートでの注意喚起用途)。
+    """
+    rows = conn.execute(
+        """
+        SELECT slug, consecutive_errors
+        FROM sources
+        WHERE enabled = 1 AND consecutive_errors > 0
+        ORDER BY consecutive_errors DESC, slug
+        """
+    ).fetchall()
+    return [
+        SourceErrorStatus(slug=str(row["slug"]), consecutive_errors=int(row["consecutive_errors"]))
+        for row in rows
+    ]
+
+
+@dataclass(frozen=True)
+class SourceStaleness:
+    """週次ヘルスレポート用: ソース1件の最終新着状態."""
+
+    slug: str
+    # published_at と fetched_at のうち新しい方の、記事間での最大値. 記事が0件なら None.
+    latest_activity_at: int | None
+
+
+def get_source_staleness(conn: sqlite3.Connection) -> list[SourceStaleness]:
+    """有効な全ソースについて articles.published_at / fetched_at の最大値を返す.
+
+    「新着なし」「長期停止疑い」等の段階判定は行わない (生の集計値のみ返す).
+    判定は呼び出し側 (scripts/health_report.py) が現在時刻と比較して行う.
+    """
+    rows = conn.execute(
+        """
+        SELECT s.slug,
+               MAX(MAX(a.published_at, a.fetched_at)) AS latest_activity_at
+        FROM sources s
+        LEFT JOIN articles a ON a.source_id = s.id
+        WHERE s.enabled = 1
+        GROUP BY s.id
+        ORDER BY s.slug
+        """
+    ).fetchall()
+    return [
+        SourceStaleness(
+            slug=str(row["slug"]),
+            latest_activity_at=(
+                int(row["latest_activity_at"]) if row["latest_activity_at"] is not None else None
+            ),
+        )
+        for row in rows
+    ]
+
+
+@dataclass(frozen=True)
+class OverallStats:
+    """週次ヘルスレポート用: DB全体の統計 (記事数系)."""
+
+    total_articles: int
+    recent_7d_count: int
+
+
+def get_overall_stats(conn: sqlite3.Connection, *, now: int | None = None) -> OverallStats:
+    """総記事数と、直近7日以内に取得 (fetched_at) された記事数を返す.
+
+    「直近7日の新着」は published_at ではなく fetched_at を基準にする
+    (低頻度ソースが古い published_at の記事を後から配信するケースがあり、
+    「いつDBに取り込まれたか」の方がクロール健全性の指標として安定するため)。
+    """
+    now_ts = now if now is not None else int(time.time())
+    cutoff = now_ts - 7 * 24 * 3600
+    total_row = conn.execute("SELECT COUNT(*) AS c FROM articles").fetchone()
+    recent_row = conn.execute(
+        "SELECT COUNT(*) AS c FROM articles WHERE fetched_at >= ?", (cutoff,)
+    ).fetchone()
+    return OverallStats(
+        total_articles=int(total_row["c"]),
+        recent_7d_count=int(recent_row["c"]),
+    )
+
+
 def start_crawl_run(conn: sqlite3.Connection) -> int:
     """crawl_runs に新規行を作成し ID を返す."""
     cur = conn.execute("INSERT INTO crawl_runs (started_at) VALUES (?)", (int(time.time()),))

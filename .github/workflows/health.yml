@@ -1,0 +1,103 @@
+name: Weekly source health report
+
+# cron: 毎週月曜 09:00 JST (UTC 月曜 0:00)
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "health"
+  cancel-in-progress: false
+
+jobs:
+  health-report:
+    name: Health report + integration smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Restore latest DB from Releases (if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          uv run python scripts/publish_release.py \
+            --mode download \
+            --repo "${{ github.repository }}" \
+            --download-to data/articles.db
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          elif [ "$code" -eq 2 ]; then
+            # exit 2 = publish_release.py が「過去 release なし」と判定した既知の状態
+            # (初回実行時など)。ヘルスレポートのみスキップし、ジョブは成功のまま続行する。
+            echo "::warning title=No DB release::過去のDBスナップショットが見つからないため、ヘルスレポートをスキップします"
+            exit 0
+          else
+            # exit 1 (gh 認証切れ・API レート制限・ネットワーク断等の想定外エラー) は
+            # ステップ失敗としてジョブを failure にし、alert ジョブから確実に検知する。
+            echo "::error title=DB restore failed::publish_release.py が想定外の理由 (exit ${code}) で失敗しました"
+            exit 1
+          fi
+
+      - name: Weekly health report (DB信号の集計 + Discord送信)
+        id: report
+        if: hashFiles('data/articles.db') != ''
+        env:
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+        run: uv run python scripts/health_report.py
+
+      - name: Integration smoke test (実フィード疎通確認)
+        # !cancelled(): GitHub Actions は明示 if を書いても success() が暗黙 AND
+        # されるため、これを付けないと「Restore latest DB」ステップが失敗(exit 1)
+        # した場合にこのステップごとスキップされてしまう。tests/integration/test_crawl_e2e.py
+        # は復元DBに依存せず実フィードへの疎通のみを検証するテストなので、
+        # DB復元の成否に関わらず必ず実行する (workflow_dispatch 手動キャンセル時のみ除外)。
+        if: ${{ !cancelled() }}
+        run: uv run pytest --integration -v -m integration
+
+  alert:
+    name: Alert on failure
+    needs: health-report
+    if: ${{ !cancelled() && needs.health-report.result == 'failure' }}
+    runs-on: ubuntu-latest
+    # checkout (読み取り専用) と Discord への通知送信しか行わないため、
+    # ワークフロー全体の permissions を継承せず最小権限に絞る (crawl.yml の alert ジョブと同パターン)
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Send alert
+        env:
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+          REPOSITORY_NAME: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          scripts/notify_alert.sh \
+            "$REPOSITORY_NAME" \
+            "$WORKFLOW_NAME" \
+            "health-report" \
+            "$RUN_URL" \
+            "週次ソース健全性レポート(health-report)が失敗しました"
