@@ -49,3 +49,34 @@ jobs:
 
       - name: Coverage threshold (>=80%)
         run: uv run coverage report --fail-under=80
+
+  workflow-lint:
+    name: Workflow lint (actionlint + shellcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: jq の存在確認
+        # tests/unit/test_notify_alert.py の requires_jq マーカーは jq 未検出時に
+        # テストをサイレントにスキップするだけで CI を失敗させないため、
+        # ランナー前提の jq が実際に使えることをここで明示的に検証する
+        run: command -v jq
+
+      - name: Install actionlint (バージョン固定)
+        run: |
+          bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash") "${ACTIONLINT_VERSION}"
+          echo "${PWD}" >> "$GITHUB_PATH"
+
+      - name: actionlint (ワークフロー全4本 + shellcheck 連携)
+        # ubuntu-latest には shellcheck がプリインストール済みのため、
+        # actionlint は自動検出して run: ブロックのシェルも検査する
+        run: actionlint -color
+
+      - name: shellcheck (scripts/*.sh)
+        run: shellcheck scripts/*.sh
