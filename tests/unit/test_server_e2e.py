@@ -85,6 +85,16 @@ def _seed_db(db_path: Path) -> int:
         conn.close()
 
 
+def _flatten_exception_group(exc: BaseException) -> list[BaseException]:
+    """ExceptionGroup をネストも含め再帰的に平坦化する."""
+    if isinstance(exc, BaseExceptionGroup):
+        flattened: list[BaseException] = []
+        for e in exc.exceptions:
+            flattened.extend(_flatten_exception_group(e))
+        return flattened
+    return [exc]
+
+
 @pytest.fixture
 def seeded_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SeededDb:
     """サンプル記事入りの一時 DB を作り QA_RADAR_DB_PATH をそこへ向ける."""
@@ -99,18 +109,29 @@ def seeded_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SeededDb:
 
 @pytest.mark.asyncio
 async def test_list_tools_exposes_five_tools_with_expected_schema(seeded_db: SeededDb) -> None:
-    """5 tool が公開され, 引数名・型が期待通り."""
+    """コア5 tool が公開され, 引数名・型が期待通り.
+
+    summarize_article は ANTHROPIC_API_KEY(+anthropic パッケージ)が揃った
+    環境でのみ import 時評価 (server.py:219 `_llm_available()`) で追加登録
+    されるため, 完全一致ではなく「コア5ツールを含み, それ以外の想定外
+    ツールが無い」ことを assert し, 実行環境(CI / ローカルで
+    ANTHROPIC_API_KEY を export しているシェル)のどちらでもパスさせる.
+    """
     async with create_connected_server_and_client_session(server.mcp) as session:
         result = await session.list_tools()
 
     tools = {t.name: t for t in result.tools}
-    assert set(tools) == {
+    core_tools = {
         "search_articles",
         "list_recent",
         "get_article",
         "list_sources",
         "list_tags",
     }
+    assert core_tools <= set(tools)
+    assert set(tools) - core_tools <= {"summarize_article"}
+    # 登録有無は server._llm_available() 相当の実行時条件と一致すること.
+    assert ("summarize_article" in tools) == server._llm_available()
 
     search_schema = tools["search_articles"].inputSchema
     assert search_schema["required"] == ["query"]
@@ -130,6 +151,7 @@ async def test_list_tools_exposes_five_tools_with_expected_schema(seeded_db: See
     assert get_schema["required"] == ["article_id"]
     assert get_schema["properties"]["article_id"]["type"] == "integer"
     assert get_schema["properties"]["include_body"]["type"] == "boolean"
+    assert get_schema["properties"]["include_body"]["default"] is False
 
     assert tools["list_sources"].inputSchema["properties"] == {}
 
@@ -178,6 +200,17 @@ async def test_call_get_article(seeded_db: SeededDb) -> None:
 
 
 @pytest.mark.asyncio
+async def test_call_get_article_default_excludes_body(seeded_db: SeededDb) -> None:
+    """include_body を省略した既定経路 (FastMCP tool wrapper 層) で
+    body が構造化結果に含まれないこと (47条の5境界)."""
+    async with create_connected_server_and_client_session(server.mcp) as session:
+        result = await session.call_tool("get_article", {"article_id": seeded_db.article_id})
+
+    assert result.isError is False
+    assert "body" not in result.structuredContent
+
+
+@pytest.mark.asyncio
 async def test_call_list_sources(seeded_db: SeededDb) -> None:
     async with create_connected_server_and_client_session(server.mcp) as session:
         result = await session.call_tool("list_sources", {})
@@ -207,23 +240,36 @@ async def test_lifespan_raises_when_db_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """QA_RADAR_DB_PATH が指すファイルが存在しない場合, 起動 (lifespan) が
-    RuntimeError で失敗し, セッション確立自体が失敗する."""
+    RuntimeError で失敗し, セッション確立自体が失敗する.
+
+    anyio / mcp のタスクグループ実装詳細により, RuntimeError は
+    (ネストする場合もある) ExceptionGroup に包まれて伝播するか, 素の
+    RuntimeError として伝播するかのどちらもあり得る. 実装詳細への過度な
+    依存を避けるため両方を許容し, ExceptionGroup の場合は再帰的に平坦化
+    してから中の RuntimeError を探す.
+    """
     missing = tmp_path / "does-not-exist.db"
     monkeypatch.setenv("QA_RADAR_DB_PATH", str(missing))
 
-    with pytest.raises(ExceptionGroup) as excinfo:
+    with pytest.raises((ExceptionGroup, RuntimeError)) as excinfo:
         async with create_connected_server_and_client_session(server.mcp):
             pass
 
-    causes = [e for e in excinfo.value.exceptions if isinstance(e, RuntimeError)]
-    assert causes, f"RuntimeError が ExceptionGroup 内に見つかりません: {excinfo.value.exceptions}"
-    assert "DB ファイルが存在しません" in str(causes[0])
-    assert str(missing) in str(causes[0])
+    raised = excinfo.value
+    if isinstance(raised, ExceptionGroup):
+        causes = [e for e in _flatten_exception_group(raised) if isinstance(e, RuntimeError)]
+        assert causes, f"RuntimeError が ExceptionGroup 内に見つかりません: {raised.exceptions}"
+        cause: BaseException = causes[0]
+    else:
+        cause = raised
+    assert "DB ファイルが存在しません" in str(cause)
+    assert str(missing) in str(cause)
 
 
 @pytest.mark.asyncio
 async def test_lifespan_starts_via_env_path_resolution(seeded_db: SeededDb) -> None:
     """QA_RADAR_DB_PATH 経由で解決したパスに DB が存在すれば起動に成功する."""
+    assert seeded_db.path.exists()  # fixture が実際にこのパスへ DB を作成していること
     async with create_connected_server_and_client_session(server.mcp) as session:
         result = await session.list_tools()
     assert len(result.tools) >= 5
@@ -283,7 +329,7 @@ async def test_summarize_article_conditional_registration(
         assert hasattr(server, "summarize_article") == original_had_tool
 
 
-# ==================== 5. 異常系 ====================
+# ==================== 5. 境界・異常系 ====================
 
 
 @pytest.mark.asyncio
@@ -310,3 +356,4 @@ async def test_search_articles_rejects_invalid_limit(seeded_db: SeededDb) -> Non
         result = await session.call_tool("search_articles", {"query": "test", "limit": 0})
 
     assert result.isError is True
+    assert "limit" in result.content[0].text
