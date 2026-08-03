@@ -14,7 +14,10 @@ from pathlib import Path
 
 from qa_radar.publisher.rss import FeedItem, main_feed_url, tag_feed_url
 
-_DIGEST_URL_RE = re.compile(r"https?://\S+")
+_DIGEST_URL_RE = re.compile(
+    r"https?://(?:(?!https?://)[^\s、。…）)」』,;:])*?(?="
+    r"[、。…）)」』,;:]|\.(?=\s|[、。…）)」』,;:]|[^\x00-\x7F]|$)|\s|https?://|$)"
+)
 
 
 @dataclass(frozen=True)
@@ -251,11 +254,15 @@ def _render_digest_markdown(content_md: str) -> str:
             in_list = False
 
     def render_text(text: str) -> str:
-        escaped = escape(text)
-        return _DIGEST_URL_RE.sub(
-            lambda match: f'<a href="{match.group(0)}" rel="noopener">{match.group(0)}</a>',
-            escaped,
-        )
+        rendered_parts: list[str] = []
+        last_end = 0
+        for match in _DIGEST_URL_RE.finditer(text):
+            rendered_parts.append(escape(text[last_end : match.start()]))
+            url = escape(match.group(0))
+            rendered_parts.append(f'<a href="{url}" rel="noopener">{url}</a>')
+            last_end = match.end()
+        rendered_parts.append(escape(text[last_end:]))
+        return "".join(rendered_parts)
 
     for line in content_md.splitlines():
         if line.startswith("## "):

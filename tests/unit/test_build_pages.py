@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from qa_radar.db import init_db
-from qa_radar.publisher.queries import insert_digest
+from qa_radar.publisher.queries import DigestStats, insert_digest
 
 _SCRIPTS = Path(__file__).resolve().parent.parent.parent / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
@@ -36,6 +36,35 @@ def test_build_pages_writes_latest_digest(tmp_path: Path, monkeypatch: pytest.Mo
 
     assert exit_code == 0
     assert "公開する週報" in (output / "digest.html").read_text(encoding="utf-8")
+
+
+def test_build_pages_passes_digest_stats_to_digest_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "articles.db"
+    output = tmp_path / "site"
+    conn = init_db(db_path)
+    try:
+        insert_digest(
+            conn,
+            created_at=100,
+            period_start=0,
+            period_end=100,
+            content_md="# 公開する週報\n- https://example.com/1",
+        )
+    finally:
+        conn.close()
+    monkeypatch.setattr(build_pages, "load_sources", lambda: [])
+    monkeypatch.setattr(
+        build_pages,
+        "fetch_digest_stats",
+        lambda _conn, *, period_start, period_end: DigestStats(article_count=3, source_count=2),
+    )
+
+    exit_code = build_pages.main(["--db-path", str(db_path), "--output", str(output)])
+
+    assert exit_code == 0
+    assert "全3件・2ソース" in (output / "digest.html").read_text(encoding="utf-8")
 
 
 def test_build_pages_uses_placeholder_when_digest_fetch_fails(

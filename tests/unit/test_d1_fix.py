@@ -189,6 +189,35 @@ def test_render_digest_links_only_http_urls_and_keeps_attributes_escaped() -> No
     assert "全3件・1ソース" in html
 
 
+def test_render_digest_stops_urls_at_japanese_punctuation_and_next_url() -> None:
+    digest = Digest(
+        id=1,
+        created_at=100,
+        period_start=0,
+        period_end=100,
+        content_md=(
+            "日本語 URL https://example.com/記事。次の記事も参照\n"
+            "連続 URL https://example.com/ahttps://example.com/b\n"
+            "括弧内 URL (https://example.com/c)。"
+        ),
+    )
+
+    html = render_digest_page(
+        digest,
+        article_count=5,
+        digest_source_count=1,
+    )
+
+    assert (
+        '<a href="https://example.com/記事" rel="noopener">https://example.com/記事</a>。' in html
+    )
+    assert '<a href="https://example.com/a" rel="noopener">https://example.com/a</a>' in html
+    assert '<a href="https://example.com/b" rel="noopener">https://example.com/b</a>' in html
+    assert '<a href="https://example.com/c" rel="noopener">https://example.com/c</a>)。' in html
+    assert html.count('rel="noopener"') == 4
+    assert "主要4件を紹介（他1件）" in html
+
+
 def test_shared_discord_split_uses_2000_character_limit() -> None:
     chunks = split_for_discord("x" * (DISCORD_CONTENT_LIMIT + 1))
     assert DISCORD_CONTENT_LIMIT == 2000
@@ -200,11 +229,11 @@ def test_shared_discord_split_uses_2000_character_limit() -> None:
 def test_shared_discord_sender_handles_invalid_url_without_leaking(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    secret_url = "invalid://SUPER_SECRET_TOKEN"
+    secret_url = "https://discord.com:notaport/api/webhooks/1/TOKEN"
     with caplog.at_level("ERROR"):
         result = send_to_discord(["本文"], secret_url)
     assert result is False
-    assert "SUPER_SECRET_TOKEN" not in caplog.text
+    assert "TOKEN" not in caplog.text
     assert "ネットワークエラー" in caplog.text
 
 
