@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 2  # v2: article_notifications テーブルを追加 (Phase 4)
+SCHEMA_VERSION = 3  # v3: articles.duplicate_of を追加
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS articles (
     published_at INTEGER NOT NULL,
     fetched_at INTEGER NOT NULL,
     tags_json TEXT NOT NULL DEFAULT '[]',
+    duplicate_of INTEGER REFERENCES articles(id),
     UNIQUE(source_id, guid)
 );
 
@@ -107,6 +109,72 @@ CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(ch
 CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id);
 """
 
+Migration = Callable[[sqlite3.Connection], None]
+
+
+def _migrate_to_v2(conn: sqlite3.Connection) -> None:
+    """v1 から v2 へ通知状態テーブルを追加する."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS article_notifications (
+            id INTEGER PRIMARY KEY,
+            article_id INTEGER NOT NULL REFERENCES articles(id),
+            channel TEXT NOT NULL,
+            notified_at INTEGER NOT NULL,
+            UNIQUE(article_id, channel)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id)"
+    )
+
+
+def _migrate_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 から v3 へ転載元記事 ID 列を追加する."""
+    conn.execute("ALTER TABLE articles ADD COLUMN duplicate_of INTEGER REFERENCES articles(id)")
+
+
+# キーは適用後のバージョン。将来の変更も 4: migration の形で逐次追加する。
+MIGRATIONS: dict[int, Migration] = {
+    2: _migrate_to_v2,
+    3: _migrate_to_v3,
+}
+
+
+def _get_schema_version(conn: sqlite3.Connection) -> int | None:
+    """バージョン行を返す. テーブルまたは行が無い新規 DB では None."""
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
+    ).fetchone()
+    if table is None:
+        return None
+    row = conn.execute("SELECT version FROM schema_version").fetchone()
+    return int(row["version"]) if row is not None else None
+
+
+def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
+    """current_version の次から SCHEMA_VERSION まで逐次適用する."""
+    for target_version in range(current_version + 1, SCHEMA_VERSION + 1):
+        migration = MIGRATIONS.get(target_version)
+        if migration is None:
+            raise RuntimeError(
+                f"スキーマ v{target_version} へのマイグレーションが登録されていません"
+            )
+        # sqlite3 は DDL の前に暗黙 BEGIN しないため、明示的に開始する。
+        conn.execute("BEGIN")
+        try:
+            migration(conn)
+            conn.execute("UPDATE schema_version SET version = ?", (target_version,))
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
+
 
 def init_db(path: Path) -> sqlite3.Connection:
     """DBファイルを開きスキーマを冪等に適用する.
@@ -122,20 +190,25 @@ def init_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA_SQL)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")
 
-    row = conn.execute("SELECT version FROM schema_version").fetchone()
-    if row is None:
-        conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-        conn.commit()
-    elif row["version"] < SCHEMA_VERSION:
-        # 前方マイグレーション: 新テーブルは CREATE TABLE IF NOT EXISTS で既に作成済み.
-        # 列追加が無いバージョン差分なら version 番号の更新のみで十分.
-        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-        conn.commit()
-    elif row["version"] > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"スキーマバージョン不一致: DB={row['version']} > コード={SCHEMA_VERSION}. "
-            "より新しいコードでDBが作られている可能性があります."
-        )
+    try:
+        current_version = _get_schema_version(conn)
+        if current_version is None:
+            # 新規 DB は最新 CREATE 文で直接作成し、過去のマイグレーションを経ない。
+            conn.executescript(_SCHEMA_SQL)
+            conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
+            conn.commit()
+        elif current_version > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"スキーマバージョン不一致: DB={current_version} > コード={SCHEMA_VERSION}. "
+                "より新しいコードでDBが作られている可能性があります."
+            )
+        else:
+            _apply_migrations(conn, current_version)
+    except Exception:
+        conn.close()
+        raise
     return conn
