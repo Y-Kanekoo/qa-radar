@@ -86,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `search_articles`: 3文字未満の純 ASCII 英数語を語境界で照合し、`DB` / `CI`
+  などの略語が長い英数字列に部分一致するノイズを解消。非 ASCII または記号を
+  含む短語は従来どおり部分一致する
 - `search_articles` と `list_recent` の tags フィルタで LIKE ワイルドカード (`%` / `_`) と
   エスケープ文字 (`\`) をリテラルとして扱うよう修正
 - `scripts/publish_release.py`: release 保持判定を `publishedAt` 基準に一本化

@@ -149,8 +149,8 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 - ~~**クロスソース重複検出の配線**(RSS / Pages / Discord 出力前に body_hash で抑制)~~
   (PR #19 で解消。残タスク: v3 化前から DB にある転載重複のバックフィル)
 - ~~**日本語検索の改善**: FTS5 `trigram` トークナイザの併用検討~~ (2026-08-03 解消: trigram に一本化し、3文字未満の語を含むクエリは LIKE へフォールバック。実測で「テスト」12/196→196/196、「自動化」2/62→62/62)
-- 2文字 ASCII 略語(DB/CI等)の単体クエリは LIKE 部分一致のため語境界を見ずノイズが多い
-  (改善案: 純ASCII短語に限り `create_function` の語境界判定を AND 追加)
+- ~~2文字 ASCII 略語(DB/CI等)の単体クエリは LIKE 部分一致のため語境界を見ずノイズが多い~~
+  (2026-08-03 解消: 純 ASCII 短語に語境界判定を追加。実測: DB 0/20→20/20)
 - **タグ 0 件記事への LLM フォールバック**(tag_rules.yaml に構想のみ存在。Haiku でバッチ処理、opt-in)
 - **arxiv のノイズ削減**: cs.SE 全件は QA 以外が大半。arxiv API クエリでキーワード
   (testing / fault / bug / verification 等)を事前フィルタ

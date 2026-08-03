@@ -15,6 +15,7 @@ from qa_radar.tools import (
     _fts5_safe_query,
     _iso_to_unix,
     _unix_to_iso,
+    _word_boundary_match,
     get_article_impl,
     list_recent_impl,
     list_sources_impl,
@@ -113,6 +114,26 @@ def test_escape_like_term_treats_backslash_as_literal(tmp_path: Path) -> None:
         conn.close()
 
 
+@pytest.mark.parametrize(
+    ("text", "term", "expected"),
+    [
+        (None, "DB", 0),
+        ("", "DB", 0),
+        ("DB", "", 0),
+        ("DB2", "DB", 0),
+        ("S3DB", "DB", 0),
+        ("v2ui", "ui", 0),
+        ("生成AIの活用", "AI", 1),
+        ("DBに保存", "DB", 1),
+        ("MAX_DB_SIZE", "DB", 1),
+        ("mongodb and a db here", "db", 1),
+    ],
+)
+def test_word_boundary_match(text: str | None, term: str, expected: int) -> None:
+    """語境界判定の数字・日本語・記号と空値の扱いを検証する."""
+    assert _word_boundary_match(text, term) == expected
+
+
 # ---------------- search_articles ----------------
 
 
@@ -176,6 +197,163 @@ def test_search_short_japanese_term_uses_like_and_orders_by_published_at(
             "https://e.com/new",
             "https://e.com/old",
         ]
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_requires_word_boundaries(tmp_path: Path) -> None:
+    """純 ASCII 短語は部分一致を除外し、大小文字を無視して語境界で照合する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "mongodb", title="MongoDB overview"))
+        insert_article(conn, _article(sid, "dbt", title="dbt guide"))
+        insert_article(conn, _article(sid, "start", title="db migration"))
+        insert_article(conn, _article(sid, "punctuation", title="use a DB."))
+        insert_article(conn, _article(sid, "end", body="We use a db"))
+
+        result = search_articles_impl(conn, "DB")
+
+        assert {item["url"] for item in result["items"]} == {
+            "https://e.com/start",
+            "https://e.com/punctuation",
+            "https://e.com/end",
+        }
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_matches_body_after_title_partial_match(tmp_path: Path) -> None:
+    """title の語内一致を除外後も body の独立語を検索する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(
+                sid,
+                "mongodb-with-db-body",
+                title="MongoDB migration",
+                body="our db is fast",
+            ),
+        )
+
+        result = search_articles_impl(conn, "DB")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/mongodb-with-db-body"]
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_accepts_symbol_boundary(tmp_path: Path) -> None:
+    """記号は語境界とし、英数字に囲まれた部分一致は除外する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "circleci", title="circleci-docs"))
+        insert_article(conn, _article(sid, "pipeline", title="CI/CD pipeline"))
+
+        result = search_articles_impl(conn, "CI")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/pipeline"]
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_rejects_numeric_adjacency(tmp_path: Path) -> None:
+    """ASCII 数字は語の一部として扱い、境界にしない."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "db2", title="DB2 guide"))
+        insert_article(conn, _article(sid, "s3db", title="S3DB guide"))
+        insert_article(conn, _article(sid, "v2ui", title="v2ui guide"))
+
+        assert search_articles_impl(conn, "DB")["items"] == []
+        assert search_articles_impl(conn, "ui")["items"] == []
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_accepts_japanese_adjacency(tmp_path: Path) -> None:
+    """日本語は ASCII 英数字ではないため語境界として扱う."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "ai", title="生成AIの活用"))
+        insert_article(conn, _article(sid, "db", title="DBに保存"))
+
+        assert [item["url"] for item in search_articles_impl(conn, "AI")["items"]] == [
+            "https://e.com/ai"
+        ]
+        assert [item["url"] for item in search_articles_impl(conn, "DB")["items"]] == [
+            "https://e.com/db"
+        ]
+    finally:
+        conn.close()
+
+
+def test_search_with_unconsumed_cursor_uses_registered_udf(tmp_path: Path) -> None:
+    """未消費カーソルがあっても検索時に UDF を再登録しない."""
+    conn = _setup_db(tmp_path)
+    cursor: sqlite3.Cursor | None = None
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "match", title="DB migration"))
+        insert_article(conn, _article(sid, "other", title="Other article"))
+        cursor = conn.execute("SELECT id FROM articles ORDER BY id")
+        assert cursor.fetchone() is not None
+
+        result = search_articles_impl(conn, "DB")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/match"]
+    finally:
+        if cursor is not None:
+            cursor.close()
+        conn.close()
+
+
+def test_search_hybrid_applies_word_boundary_to_ascii_short_term(tmp_path: Path) -> None:
+    """混在経路でも長語 FTS と ASCII 短語の語境界条件を AND で適用する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "match", title="AI テスト設計"))
+        insert_article(conn, _article(sid, "partial", title="AIOps テスト設計"))
+        insert_article(conn, _article(sid, "long-only", title="テスト設計"))
+
+        result = search_articles_impl(conn, "AI テスト")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/match"]
+    finally:
+        conn.close()
+
+
+def test_search_non_ascii_short_term_keeps_partial_match(tmp_path: Path) -> None:
+    """非 ASCII 短語は従来どおり語境界を設けず部分一致する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "quality", title="高品質化の進め方"))
+
+        result = search_articles_impl(conn, "品質")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/quality"]
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_matches_tags_json_at_word_boundary(tmp_path: Path) -> None:
+    """ASCII 短語は tags_json 内でも同じ語境界規則で照合する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(conn, _article(sid, "tag", tags=["DB"]))
+        insert_article(conn, _article(sid, "partial-tag", tags=["MongoDB"]))
+
+        result = search_articles_impl(conn, "db")
+
+        assert [item["url"] for item in result["items"]] == ["https://e.com/tag"]
     finally:
         conn.close()
 
