@@ -158,3 +158,71 @@ def test_unknown_rule_key_raises_value_error(tmp_path: Path) -> None:
         load_tagger_config(p)
 
     assert "mystery_key" in str(exc_info.value)
+
+
+def test_unknown_co_occurrence_key_raises_value_error(tmp_path: Path) -> None:
+    """co_occurrence の typo (例: if_anyy) は無発火のデッドルールになるため検出する."""
+    p = tmp_path / "rules.yaml"
+    p.write_text(
+        "co_occurrence: [{if_anyy: [foo], add: [tooling]}]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "if_anyy" in str(exc_info.value)
+
+
+def test_unknown_top_level_key_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "rules.yaml"
+    p.write_text("version: 1\nmystery_top_key: 1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "mystery_top_key" in str(exc_info.value)
+
+
+def test_invalid_source_tags_shape_raises_value_error(tmp_path: Path) -> None:
+    """source_tags の値がリストでない (例: 文字列) 場合は1文字ずつ分解される
+    サイレントな設定ミスになるため検出する."""
+    p = tmp_path / "rules.yaml"
+    p.write_text("source_tags: {foo: e2e}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "source_tags" in str(exc_info.value)
+
+
+def test_source_tags_not_a_mapping_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "rules.yaml"
+    p.write_text("source_tags: [foo, bar]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "source_tags" in str(exc_info.value)
+
+
+def test_non_dict_rule_element_raises_value_error(tmp_path: Path) -> None:
+    """rules の要素が dict でない場合も AttributeError ではなく
+    日本語 ValueError に統一する."""
+    p = tmp_path / "rules.yaml"
+    p.write_text("rules: [null]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "rules[0]" in str(exc_info.value)
+
+
+def test_non_dict_co_occurrence_element_raises_value_error(tmp_path: Path) -> None:
+    p = tmp_path / "rules.yaml"
+    p.write_text("co_occurrence: ['e2e']\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_tagger_config(p)
+
+    assert "co_occurrence[0]" in str(exc_info.value)
