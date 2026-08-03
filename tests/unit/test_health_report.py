@@ -97,10 +97,10 @@ def test_build_digest_staleness_labels_for_each_tier() -> None:
     now = 2_000_000_000
     day = 24 * 3600
     staleness = [
-        SourceStaleness(slug="healthy", name="Healthy", latest_activity_at=now - 1 * day),
-        SourceStaleness(slug="warn", name="Warn", latest_activity_at=now - 30 * day),
-        SourceStaleness(slug="critical", name="Critical", latest_activity_at=now - 90 * day),
-        SourceStaleness(slug="never", name="Never", latest_activity_at=None),
+        SourceStaleness(slug="healthy", latest_activity_at=now - 1 * day),
+        SourceStaleness(slug="warn", latest_activity_at=now - 30 * day),
+        SourceStaleness(slug="critical", latest_activity_at=now - 90 * day),
+        SourceStaleness(slug="never", latest_activity_at=None),
     ]
     digest = health_report.build_digest(
         error_sources=[],
@@ -152,9 +152,13 @@ def test_split_for_discord_truncates_single_oversized_line() -> None:
     chunks = health_report.split_for_discord(huge_line, limit=2000)
     assert len(chunks) == 1
     assert len(chunks[0]) == 2000
+    # 切り詰められたことが受信側で判別できるようマーカーが付く
+    assert chunks[0].endswith("…")
 
 
 # ---------------- send_to_discord ----------------
+
+_SECRET_WEBHOOK_URL = "https://discord.com/api/webhooks/123456789/SUPER_SECRET_TOKEN_abcdef"
 
 
 def test_send_to_discord_all_success_returns_true(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,6 +187,58 @@ def test_send_to_discord_partial_failure_returns_false(monkeypatch: pytest.Monke
     monkeypatch.setattr(httpx, "Client", _client_class(handler))
     ok = health_report.send_to_discord(["a", "b", "c"], "https://discord/wh")
     assert ok is False
+
+
+def test_send_to_discord_retries_on_429_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """429 を受けても Retry-After に従って再送し、最終的に成功する."""
+    call_count = 0
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(429, headers={"retry-after": "0"})
+        return httpx.Response(204)
+
+    monkeypatch.setattr(httpx, "Client", _client_class(handler))
+    ok = health_report.send_to_discord(["chunk"], "https://discord/wh", max_retries=1)
+    assert ok is True
+    assert call_count == 2
+
+
+def test_send_to_discord_gives_up_after_max_retries_on_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"retry-after": "0"})
+
+    monkeypatch.setattr(httpx, "Client", _client_class(handler))
+    ok = health_report.send_to_discord(["chunk"], "https://discord/wh", max_retries=1)
+    assert ok is False
+
+
+def test_send_to_discord_failure_does_not_leak_webhook_url_in_logs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """webhook URL は事実上のシークレットのため、失敗時のログに含めてはならない.
+
+    以前の実装は `httpx.HTTPStatusError` (raise_for_status) の例外メッセージを
+    そのままログしており、そのメッセージには URL 全文が含まれていた。
+    """
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    monkeypatch.setattr(httpx, "Client", _client_class(handler))
+
+    with caplog.at_level("DEBUG"):
+        ok = health_report.send_to_discord(["chunk"], _SECRET_WEBHOOK_URL)
+
+    assert ok is False
+    assert "discord.com/api/webhooks" not in caplog.text
+    assert "SUPER_SECRET_TOKEN" not in caplog.text
 
 
 # ---------------- main ----------------
@@ -247,6 +303,34 @@ def test_main_sends_to_discord_when_webhook_set(
     assert exit_code == 0
     assert len(sent) == 1
     assert "flaky" in captured.out
+
+
+def test_main_does_not_leak_webhook_url_via_httpx_info_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """httpx はリクエスト毎に INFO で URL 全文をログするため、main() 内で抑止する.
+
+    (`logging.getLogger("httpx").setLevel(logging.WARNING)`)
+    """
+    monkeypatch.setenv(health_report.ENV_ALERT_WEBHOOK, _SECRET_WEBHOOK_URL)
+    db_path = tmp_path / "articles.db"
+    conn = init_db(db_path)
+    try:
+        upsert_source(conn, _src())
+    finally:
+        conn.close()
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(204)
+
+    monkeypatch.setattr(httpx, "Client", _client_class(handler))
+
+    with caplog.at_level("DEBUG"):
+        exit_code = health_report.main(["--db-path", str(db_path)])
+
+    assert exit_code == 0
+    assert "discord.com/api/webhooks" not in caplog.text
+    assert "SUPER_SECRET_TOKEN" not in caplog.text
 
 
 def test_main_returns_nonzero_when_discord_send_fails(

@@ -199,7 +199,6 @@ class SourceStaleness:
     """週次ヘルスレポート用: ソース1件の最終新着状態."""
 
     slug: str
-    name: str
     # published_at と fetched_at のうち新しい方の、記事間での最大値. 記事が0件なら None.
     latest_activity_at: int | None
 
@@ -212,7 +211,7 @@ def get_source_staleness(conn: sqlite3.Connection) -> list[SourceStaleness]:
     """
     rows = conn.execute(
         """
-        SELECT s.slug, s.name,
+        SELECT s.slug,
                MAX(MAX(a.published_at, a.fetched_at)) AS latest_activity_at
         FROM sources s
         LEFT JOIN articles a ON a.source_id = s.id
@@ -224,7 +223,6 @@ def get_source_staleness(conn: sqlite3.Connection) -> list[SourceStaleness]:
     return [
         SourceStaleness(
             slug=str(row["slug"]),
-            name=str(row["name"]),
             latest_activity_at=(
                 int(row["latest_activity_at"]) if row["latest_activity_at"] is not None else None
             ),

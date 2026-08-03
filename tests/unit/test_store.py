@@ -297,6 +297,37 @@ def test_get_source_staleness_picks_max_of_published_and_fetched(tmp_path: Path)
         conn.close()
 
 
+def test_get_source_staleness_picks_fetched_when_it_is_newer(tmp_path: Path) -> None:
+    """fetched_at の方が新しい場合はそちらが採用される (実運用で最も頻出のケース).
+
+    `MAX(MAX(a.published_at, a.fetched_at))` を `MAX(a.published_at)` に退行させると
+    このテストのみが検出できる (published_at 側が勝つケースだけでは検出不可)。
+    """
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source("s"))
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="g1",
+                url="https://e.com/1",
+                title="t1",
+                snippet="s1",
+                body_hash="h1",
+                body=None,
+                author=None,
+                published_at=1,
+            ),
+        )
+        conn.execute("UPDATE articles SET fetched_at = 2_000_000_000 WHERE guid = 'g1'")
+        conn.commit()
+        result = get_source_staleness(conn)
+        assert result[0].latest_activity_at == 2_000_000_000
+    finally:
+        conn.close()
+
+
 def test_get_source_staleness_excludes_disabled_sources(tmp_path: Path) -> None:
     conn = init_db(tmp_path / "test.db")
     try:
@@ -362,6 +393,45 @@ def test_get_overall_stats_counts_total_and_recent(tmp_path: Path) -> None:
         stats = get_overall_stats(conn, now=now)
         assert stats.total_articles == 2
         assert stats.recent_7d_count == 1  # 8日前は対象外, 3日前のみ対象
+    finally:
+        conn.close()
+
+
+def test_get_overall_stats_uses_fetched_at_not_published_at(tmp_path: Path) -> None:
+    """recent_7d_count は fetched_at 基準であり published_at ではない (docstring 通りの退行防止).
+
+    published_at と fetched_at を意図的にずらし、`WHERE fetched_at >= ?` を
+    `WHERE published_at >= ?` に退行させると検出できるようにする。
+    """
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source())
+        now = 2_000_000_000
+        three_days_ago = now - 3 * 24 * 3600
+        # published_at 基準なら圏外 (太古の昔) だが、fetched_at (DBへの取り込み日時) は
+        # 直近7日以内、という低頻度ソースにありがちなケース
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="old-published-recently-fetched",
+                url="https://e.com/x",
+                title="x",
+                snippet="s",
+                body_hash="x",
+                body=None,
+                author=None,
+                published_at=1,
+            ),
+        )
+        conn.execute(
+            "UPDATE articles SET fetched_at = ? WHERE guid = 'old-published-recently-fetched'",
+            (three_days_ago,),
+        )
+        conn.commit()
+
+        stats = get_overall_stats(conn, now=now)
+        assert stats.recent_7d_count == 1
     finally:
         conn.close()
 

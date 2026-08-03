@@ -36,11 +36,18 @@ from qa_radar.crawler.store import (
     get_sources_with_errors,
 )
 from qa_radar.db import init_db
+from qa_radar.publisher.discord import _parse_retry_after
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 ENV_ALERT_WEBHOOK = "DISCORD_ALERT_WEBHOOK_URL"
 DISCORD_CONTENT_LIMIT = 2000
+DEFAULT_MAX_RETRIES = 2
+
+# httpx は各リクエストを INFO でログするが、そのメッセージには webhook URL 全文が
+# 含まれる (webhook URL は事実上のシークレット)。呼び出し経路 (main() 経由か、
+# send_to_discord を直接呼ぶか) によらず必ず抑止されるよう、import 時点で設定する。
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 STALE_WARNING_DAYS = 30
 STALE_CRITICAL_DAYS = 90
@@ -134,7 +141,8 @@ def split_for_discord(text: str, *, limit: int = DISCORD_CONTENT_LIMIT) -> list[
     current = ""
     for line in lines:
         if len(line) > limit:
-            line = line[:limit]
+            # 切り詰めたことが受信側で判別できるよう末尾にマーカーを付ける
+            line = line[: limit - 1] + "…"
         candidate = f"{current}\n{line}" if current else line
         if len(candidate) > limit:
             if current:
@@ -147,8 +155,61 @@ def split_for_discord(text: str, *, limit: int = DISCORD_CONTENT_LIMIT) -> list[
     return chunks
 
 
+def _send_chunk(
+    used: httpx.Client,
+    chunk: str,
+    webhook_url: str,
+    *,
+    index: int,
+    total: int,
+    max_retries: int,
+    log: logging.Logger,
+) -> bool:
+    """1チャンクを Discord webhook へ POST する (429 は Retry-After に従い再送).
+
+    webhook URL は事実上のシークレットのため、あらゆるログ・例外経路に含めない。
+    `httpx.HTTPStatusError` (raise_for_status) は例外メッセージに URL 全文を
+    含むため使わず、status_code のみを判定・ログ出力する
+    (`src/qa_radar/publisher/discord.py` の `send_notification` と同じ方針)。
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            resp = used.post(webhook_url, json={"content": chunk})
+        except httpx.HTTPError:
+            log.error("Discord 送信失敗 (chunk=%d/%d): ネットワークエラー", index, total)
+            return False
+
+        if 200 <= resp.status_code < 300:
+            return True
+
+        if resp.status_code == 429 and attempt < max_retries:
+            retry_after = _parse_retry_after(resp)
+            log.info(
+                "Discord rate limited (chunk=%d/%d), %ss 待機して再試行",
+                index,
+                total,
+                retry_after,
+            )
+            time.sleep(retry_after)
+            continue
+
+        log.error(
+            "Discord 送信失敗 (chunk=%d/%d): status=%d body=%r",
+            index,
+            total,
+            resp.status_code,
+            resp.text[:200],
+        )
+        return False
+    return False
+
+
 def send_to_discord(
-    chunks: list[str], webhook_url: str, *, client: httpx.Client | None = None
+    chunks: list[str],
+    webhook_url: str,
+    *,
+    client: httpx.Client | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> bool:
     """digest のチャンクを順に Discord webhook へ POST する.
 
@@ -160,11 +221,16 @@ def send_to_discord(
     used = client if client is not None else httpx.Client(timeout=10.0)
     try:
         for i, chunk in enumerate(chunks):
-            try:
-                resp = used.post(webhook_url, json={"content": chunk})
-                resp.raise_for_status()
-            except httpx.HTTPError as e:
-                log.error("Discord 送信失敗 (chunk=%d/%d): %s", i + 1, len(chunks), e)
+            ok = _send_chunk(
+                used,
+                chunk,
+                webhook_url,
+                index=i + 1,
+                total=len(chunks),
+                max_retries=max_retries,
+                log=log,
+            )
+            if not ok:
                 return False
         return True
     finally:
