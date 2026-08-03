@@ -165,11 +165,14 @@ async def test_does_not_retry_unsupported_protocol() -> None:
 
     assert request_count == 1
     assert r.error is not None
+    assert "未対応のプロトコル" in r.error
     assert r.status_code == 0
 
 
 @pytest.mark.asyncio
-async def test_does_not_retry_local_protocol_error() -> None:
+async def test_retries_local_protocol_error_then_fails() -> None:
+    """LocalProtocolError はコネクションプール再利用時に一過性で起こりうるため、
+    ConnectError 等と同様にリトライ対象とする(恒久エラー扱いにはしない)."""
     request_count = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -184,9 +187,10 @@ async def test_does_not_retry_local_protocol_error() -> None:
             retry_base_delay=0,
         )
 
-    assert request_count == 1
     assert r.error is not None
+    assert "クライアント側のプロトコル違反" in r.error
     assert r.status_code == 0
+    assert request_count == 3
 
 
 @pytest.mark.asyncio

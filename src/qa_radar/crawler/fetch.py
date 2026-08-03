@@ -15,13 +15,15 @@ USER_AGENT = f"qa-radar/{__version__} (+https://github.com/Y-Kanekoo/qa-radar)"
 DEFAULT_TIMEOUT = 30.0
 ACCEPT_HEADER = "application/atom+xml, application/rss+xml, application/xml, text/xml, */*"
 # リトライしても結果が変わらない TransportError のサブクラス.
-# URL スキーム不正 (UnsupportedProtocol) やクライアント側のプロトコル違反
-# (LocalProtocolError) はネットワークの一時的な障害ではなく、同じリクエストを
-# 繰り返しても常に同じ理由で失敗するため、即座に失敗させてリトライ回数を消費しない.
-PERMANENT_TRANSPORT_ERRORS: tuple[type[httpx.TransportError], ...] = (
-    httpx.UnsupportedProtocol,
-    httpx.LocalProtocolError,
-)
+# URL スキーム不正 (UnsupportedProtocol) は同じ URL を繰り返し要求しても常に
+# 同じ理由で失敗するため、即座に失敗させてリトライ回数を消費しない.
+# 注意: LocalProtocolError はここに含めない。orchestrator.py で全ソースが単一の
+# httpx.AsyncClient を共有しコネクションプールを再利用しているため、h11 の
+# ステートマシン不整合に由来する一過性の LocalProtocolError が発生しうる。
+# 恒久エラー扱いにすると、リトライで自己修復できたはずのケースまで即失敗になり
+# store の consecutive_errors を無駄に増やしてアラート誤発火につながるため、
+# 通常の TransportError と同様にリトライ対象とする.
+PERMANENT_TRANSPORT_ERRORS: tuple[type[httpx.TransportError], ...] = (httpx.UnsupportedProtocol,)
 
 
 async def _sleep(delay: float) -> None:
