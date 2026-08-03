@@ -171,6 +171,22 @@ uv run python scripts/publish_release.py \
 
 過去 release が 1 件も無い場合は終了コード `2` で失敗する (`過去 release なし` の warning)。
 
+## DB スキーマのマイグレーション
+
+`init_db()` は DB の `schema_version` を読み、コード側の `SCHEMA_VERSION` まで
+マイグレーションを逐次適用する (現行 v3: `articles.duplicate_of`)。運用上の注意:
+
+- **一度上げたバージョンは戻せない**。v3 化した DB を旧コード (`SCHEMA_VERSION = 2`)
+  で開くと前方保護の `RuntimeError`(`スキーマバージョン不一致: DB=3 > コード=2`)で
+  起動しない。ロールバックが必要な場合は、コードを戻すだけでなく **旧バージョン時代の
+  `data-*` スナップショットを Releases から復元する**こと
+- `schema_version` テーブルはあるのに行が無い DB は、空の新規 DB と区別できないため
+  `RuntimeError` で停止する (壊れた状態のまま最新バージョンを刻むと自己修復できなくなる)。
+  この場合も上記「DB 復旧」の手順でスナップショットから復元する
+- 転載重複 (`duplicate_of`) のマークは **v3 化以降に新規取得した記事のみ**が対象。
+  移行前から DB にある転載記事は NULL のままで、RSS / Pages / Discord / MCP 一覧に
+  出続ける (guid 重複で再 INSERT されないため自然解消しない)
+
 ## 手動実行
 
 `workflow_dispatch` で手動トリガーできる。以下の入力を指定可能:

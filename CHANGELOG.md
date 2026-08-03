@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Phase C-3**: クロスソース転載重複の配線と DB マイグレーション基盤
+  - `src/qa_radar/db.py`: バージョン別マイグレーション関数を逐次適用する基盤を追加
+    (`MIGRATIONS` dict + `_apply_migrations()`)。列追加のような ALTER を伴う変更に対応。
+    各適用は `BEGIN IMMEDIATE` で開始し、トランザクション内でバージョンを読み直すため、
+    別プロセス (常駐 MCP サーバ等) と同時実行しても二重適用しない
+  - schema **v3**: `articles.duplicate_of INTEGER REFERENCES articles(id)` を追加
+    (NULL = 非重複)。新規 DB の CREATE と v2→v3 の ALTER の両方に反映
+  - クロール時に別ソースの同一 body_hash を検出し `duplicate_of` でマーク
+    (記事は削除せず保持 = 誤判定から復元可能)。正規化本文 200 文字未満は
+    定型文のハッシュ衝突を避けるため判定しない
+  - **元記事の定義**: 同一本文グループのうち `published_at` が最古の記事。転載を先に
+    クロールした後で本家が届いた場合は、本家を元記事にしてグループ全体の
+    `duplicate_of` を付け替える (INSERT と同一トランザクション)
+  - 出力からの除外: Discord 通知 (`fetch_unnotified`)、RSS/Pages の記事一覧・
+    ソース別件数・タグ集計、MCP の `list_recent` / `list_sources` / `list_tags`。
+    MCP の `search_articles` だけはコーパス全体の発見性を優先して除外しない
+  - クロールサマリに「重複マーク件数」を追加 (`scripts/run_crawl.py`)
+  - **既知の制限**: v3 マイグレーションはバックフィルを行わない。移行前から DB にある
+    転載重複は `duplicate_of` が NULL のままで、guid 重複により再 INSERT もされないため、
+    一覧・通知・集計に出続ける。除外対象は v3 化以降に新規取得した記事のみ
+
 - **Phase B**: 監視・信頼性向上。過去に GitHub Pages 設定ミスで約2ヶ月間 crawl.yml が
   全滅していても誰も気づけなかった事故を踏まえ、「失敗が握りつぶされる/区別できない」
   構造を解消

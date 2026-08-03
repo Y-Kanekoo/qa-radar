@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from qa_radar.sources import SourceConfig
@@ -26,6 +27,7 @@ class ArticleRow:
     author: str | None
     published_at: int
     tags: list[str] | None = None  # None なら空タグで挿入 (Phase 2 から指定)
+    duplicate_of: int | None = None
 
 
 def upsert_source(conn: sqlite3.Connection, source: SourceConfig) -> int:
@@ -61,20 +63,32 @@ def upsert_source(conn: sqlite3.Connection, source: SourceConfig) -> int:
     return int(row["id"])
 
 
-def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
+def insert_article(
+    conn: sqlite3.Connection,
+    article: ArticleRow,
+    *,
+    regrouped_ids: Sequence[int] | None = None,
+) -> bool:
     """記事を articles へ INSERT する. 重複時は False を返し例外を出さない.
+
+    Args:
+        conn: DB 接続.
+        article: 挿入する記事.
+        regrouped_ids: 挿入記事を新しい元記事として `duplicate_of` を付け替える
+            既存記事の id 群. INSERT と同一トランザクションで UPDATE するため、
+            付け替えだけが適用された中途半端な状態にはならない.
 
     Returns:
         新規挿入で True、UNIQUE 制約による重複で False.
     """
     tags_json = json.dumps(article.tags or [], ensure_ascii=False)
     try:
-        conn.execute(
+        cur = conn.execute(
             """
             INSERT INTO articles
                 (source_id, guid, url, title, snippet, body_hash, body, author,
-                 published_at, fetched_at, tags_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 published_at, fetched_at, tags_json, duplicate_of)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article.source_id,
@@ -88,11 +102,24 @@ def insert_article(conn: sqlite3.Connection, article: ArticleRow) -> bool:
                 article.published_at,
                 int(time.time()),
                 tags_json,
+                article.duplicate_of,
             ),
         )
+        if regrouped_ids:
+            new_id = cur.lastrowid
+            if new_id is None:  # pragma: no cover
+                raise RuntimeError("articles INSERT後の lastrowid が None")
+            # プレースホルダ数は id 件数から生成するだけで、値は全てバインドする
+            placeholders = ", ".join("?" * len(regrouped_ids))
+            conn.execute(
+                f"UPDATE articles SET duplicate_of = ? WHERE id IN ({placeholders})",
+                (new_id, *regrouped_ids),
+            )
         conn.commit()
         return True
     except sqlite3.IntegrityError:
+        # INSERT で開いた暗黙トランザクションを畳んでから呼び出し元に戻す.
+        conn.rollback()
         return False
 
 

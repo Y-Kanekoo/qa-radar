@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -133,6 +134,28 @@ def test_main_full_success_emits_no_failure_annotation(
     assert exit_code == 0
     assert "::warning title=Crawl partial failure::" not in captured.out
     assert "::error title=Crawl total failure::" not in captured.out
+
+
+def test_main_logs_duplicate_mark_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """クロール完了時に重複マーク件数を独立した1行で出力する."""
+    db_path = tmp_path / "articles.db"
+    _patch_sources_and_blocked(monkeypatch, [_src("a")])
+
+    async def fake_run_crawl(conn, sources, blocked, *, concurrency=5):
+        return CrawlResult(
+            sources_processed=1,
+            articles_added=3,
+            errors=[],
+            duplicates_marked=2,
+        )
+
+    monkeypatch.setattr(run_crawl, "run_crawl", fake_run_crawl)
+    caplog.set_level(logging.INFO, logger="qa_radar.run_crawl")
+
+    assert run_crawl.main(["--db-path", str(db_path)]) == 0
+    assert "重複マーク: 2 件" in caplog.messages
 
 
 def test_main_emits_repeatedly_failing_source_annotation(

@@ -122,6 +122,34 @@ def test_fetch_recent_parses_tags_json(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_publisher_queries_exclude_duplicates_from_articles_and_summaries(
+    tmp_path: Path,
+) -> None:
+    """一覧・ソース集計・タグ集計を非重複記事だけで揃える."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid1 = upsert_source(conn, _src("origin"))
+        sid2 = upsert_source(conn, _src("repost"))
+        insert_article(conn, _article(sid1, "origin", tags=["e2e"]))
+        origin_id = int(
+            conn.execute("SELECT id FROM articles WHERE guid = 'origin'").fetchone()["id"]
+        )
+        duplicate = _article(sid2, "duplicate", tags=["e2e", "repost-only"])
+        duplicate.duplicate_of = origin_id
+        insert_article(conn, duplicate)
+
+        recent = fetch_recent_articles(conn)
+        source_summaries = {item.slug: item for item in fetch_source_summaries(conn)}
+        tag_summaries = {item.tag: item.article_count for item in fetch_tag_summaries(conn)}
+
+        assert [item.url for item in recent] == ["https://e.com/origin"]
+        assert source_summaries["origin"].article_count == 1
+        assert source_summaries["repost"].article_count == 0
+        assert tag_summaries == {"e2e": 1}
+    finally:
+        conn.close()
+
+
 # ---------------- source summaries ----------------
 
 

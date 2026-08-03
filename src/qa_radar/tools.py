@@ -9,6 +9,10 @@ MCP プロトコルに依存しない純粋関数として実装する. server.p
 - BM25 重み: title=5.0, body=1.0, tags=2.0 (タイトル/タグマッチを優先)
 - date_from/date_to は ISO8601 文字列 (例: "2024-01-15", "2024-01-15T00:00:00Z")
 - snippet ハイライト機能は将来追加 (現状は格納済みの snippet をそのまま返す)
+- 転載重複 (`articles.duplicate_of IS NOT NULL`) の扱い:
+    一覧・集計系 (`list_recent` / `list_sources` / `list_tags`) は RSS/Pages と
+    同じ件数になるよう **除外する**. `search_articles` だけはコーパス全体の発見性を
+    優先して除外しない. `get_article` は id 直接指定なので常に返す.
 """
 
 from __future__ import annotations
@@ -82,6 +86,7 @@ def search_articles_impl(
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
 
+    # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
     where: list[str] = ["articles_fts MATCH ?"]
     params: list[Any] = [_fts5_safe_query(query)]
 
@@ -127,14 +132,18 @@ def list_recent_impl(
     tag: str | None = None,
     limit: int = 30,
 ) -> list[dict[str, Any]]:
-    """直近 N 日の新着記事を新しい順で返す."""
+    """直近 N 日の新着記事を新しい順で返す.
+
+    RSS/Pages の一覧と同じ内容になるよう、転載重複 (duplicate_of) は除外する.
+    重複も含めて探したい場合は `search_articles` を使う.
+    """
     if not 1 <= days <= 365:
         raise ValueError("days は 1〜365 の範囲で指定してください")
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
 
     since = int(datetime.now(tz=UTC).timestamp()) - days * 86400
-    where: list[str] = ["a.published_at >= ?"]
+    where: list[str] = ["a.duplicate_of IS NULL", "a.published_at >= ?"]
     params: list[Any] = [since]
 
     if source:
@@ -199,12 +208,16 @@ def get_article_impl(
 
 
 def list_sources_impl(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """集約しているソース一覧を返す. 各ソースの記事数 / 最終取得日を含む."""
+    """集約しているソース一覧を返す. 各ソースの記事数 / 最終取得日を含む.
+
+    件数は Pages の sources.html と揃えるため転載重複を除外して数える.
+    """
     sql = """
         SELECT s.slug, s.name, s.site_url, s.language, s.category, s.enabled,
                COUNT(a.id) AS article_count,
                MAX(a.published_at) AS latest_at
-        FROM sources s LEFT JOIN articles a ON a.source_id = s.id
+        FROM sources s LEFT JOIN articles a
+          ON a.source_id = s.id AND a.duplicate_of IS NULL
         GROUP BY s.id
         ORDER BY article_count DESC, s.slug
     """
@@ -236,6 +249,7 @@ def list_tags_impl(
     """利用可能なタグの一覧と各タグの記事数を返す.
 
     `min_count` 未満のロングテールは除外する.
+    件数は Pages のタグ集計と揃えるため転載重複を除外して数える.
     """
     if min_count < 1:
         raise ValueError("min_count は 1 以上で指定してください")
@@ -245,6 +259,7 @@ def list_tags_impl(
     sql = """
         SELECT je.value AS tag, COUNT(*) AS cnt
         FROM articles a, json_each(a.tags_json) je
+        WHERE a.duplicate_of IS NULL
         GROUP BY tag
         HAVING cnt >= ?
         ORDER BY cnt DESC, tag

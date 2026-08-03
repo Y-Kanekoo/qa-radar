@@ -58,6 +58,7 @@ def fetch_unnotified(
             SELECT 1 FROM article_notifications n
             WHERE n.article_id = a.id AND n.channel = ?
         )
+        AND a.duplicate_of IS NULL
         {where_extra}
         ORDER BY a.published_at DESC
         LIMIT ?

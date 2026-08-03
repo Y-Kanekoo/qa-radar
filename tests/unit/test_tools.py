@@ -215,6 +215,29 @@ def test_search_empty_db(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_search_includes_cross_source_duplicates(tmp_path: Path) -> None:
+    """MCP 全文検索は duplicate_of がある記事も検索対象に含める."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid1 = upsert_source(conn, _src("origin"))
+        sid2 = upsert_source(conn, _src("repost"))
+        insert_article(conn, _article(sid1, "origin", title="Shared Playwright news"))
+        origin_id = int(conn.execute("SELECT id FROM articles").fetchone()["id"])
+        duplicate = _article(sid2, "duplicate", title="Shared Playwright news")
+        duplicate.duplicate_of = origin_id
+        insert_article(conn, duplicate)
+
+        result = search_articles_impl(conn, "playwright")
+
+        assert len(result["items"]) == 2
+        assert {item["url"] for item in result["items"]} == {
+            "https://e.com/origin",
+            "https://e.com/duplicate",
+        }
+    finally:
+        conn.close()
+
+
 # ---------------- list_recent ----------------
 
 
@@ -263,6 +286,32 @@ def test_list_recent_filters_by_tag(tmp_path: Path) -> None:
         result = list_recent_impl(conn, days=1, tag="e2e")
         assert len(result) == 1
         assert result[0]["tags"] == ["e2e"]
+    finally:
+        conn.close()
+
+
+def test_list_recent_excludes_cross_source_duplicates(tmp_path: Path) -> None:
+    """一覧・集計は Pages / RSS と件数を揃えるため転載重複を除外する."""
+    import time
+
+    now = int(time.time())
+    conn = _setup_db(tmp_path)
+    try:
+        sid1 = upsert_source(conn, _src("origin"))
+        sid2 = upsert_source(conn, _src("repost"))
+        insert_article(conn, _article(sid1, "origin", published_at=now - 100))
+        origin_id = int(conn.execute("SELECT id FROM articles").fetchone()["id"])
+        duplicate = _article(sid2, "repost", published_at=now - 50)
+        duplicate.duplicate_of = origin_id
+        insert_article(conn, duplicate)
+
+        recent = list_recent_impl(conn, days=1)
+        sources = {s["slug"]: s["article_count"] for s in list_sources_impl(conn)}
+        tags = {t["tag"]: t["count"] for t in list_tags_impl(conn, min_count=1)}
+
+        assert [item["url"] for item in recent] == ["https://e.com/origin"]
+        assert sources == {"origin": 1, "repost": 0}
+        assert tags == {"e2e": 1}
     finally:
         conn.close()
 
