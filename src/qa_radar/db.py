@@ -19,13 +19,18 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable
+from itertools import groupby
 from pathlib import Path
 
+from qa_radar.crawler.dedup import (
+    is_normalized_body_eligible_for_dedup,
+    normalize_body_for_dedup,
+)
 from qa_radar.tools import _word_boundary_match
 
 logger = logging.getLogger("qa_radar.db")
 
-SCHEMA_VERSION = 5  # v5: 週刊 LLM ダイジェストを保存
+SCHEMA_VERSION = 6  # v6: 既存のクロスソース転載重複をバックフィル
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -191,6 +196,56 @@ def _migrate_to_v5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_to_v6(conn: sqlite3.Connection) -> None:
+    """v5 から v6 へ既存のクロスソース転載重複をバックフィルする."""
+    rows = conn.execute(
+        """
+        SELECT id, source_id, body_hash, body, published_at, duplicate_of
+        FROM articles
+        ORDER BY body_hash ASC, published_at ASC, id ASC
+        """
+    ).fetchall()
+    newly_marked_count = 0
+    corrected_count = 0
+
+    for _, grouped_rows in groupby(rows, key=lambda row: str(row["body_hash"])):
+        group = list(grouped_rows)
+        eligible = [
+            row
+            for row in group
+            if is_normalized_body_eligible_for_dedup(normalize_body_for_dedup(row["body"]))
+        ]
+        source_ids = {int(row["source_id"]) for row in eligible}
+        expected_duplicate_of: dict[int, int | None] = {int(row["id"]): None for row in group}
+        if len(source_ids) >= 2:
+            original_id = int(eligible[0]["id"])
+            expected_duplicate_of.update({int(row["id"]): original_id for row in eligible[1:]})
+
+        for row in group:
+            article_id = int(row["id"])
+            current = int(row["duplicate_of"]) if row["duplicate_of"] is not None else None
+            expected = expected_duplicate_of[article_id]
+            if current == expected:
+                continue
+
+            # クロール順によって元記事が後着した既存 DB もあり得るため、現在の印を
+            # 前提にせず最古記事から再構成する。同時に短文・同一ソースのみの誤印も外す。
+            conn.execute(
+                "UPDATE articles SET duplicate_of = ? WHERE id = ?",
+                (expected, article_id),
+            )
+            if current is None and expected is not None:
+                newly_marked_count += 1
+            else:
+                corrected_count += 1
+
+    logger.info(
+        "schema v6: %d 件を転載重複としてマークし、既存マークを %d 件補正しました",
+        newly_marked_count,
+        corrected_count,
+    )
+
+
 # キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
 # 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
@@ -198,6 +253,7 @@ MIGRATIONS: dict[int, Migration] = {
     3: _migrate_to_v3,
     4: _migrate_to_v4,
     5: _migrate_to_v5,
+    6: _migrate_to_v6,
 }
 
 

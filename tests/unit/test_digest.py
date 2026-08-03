@@ -19,7 +19,7 @@ from qa_radar.summarizer.digest import (
 
 
 def _create_v4_db(path: Path) -> None:
-    """最新版から v5 オブジェクトだけを除き、実スキーマ相当の v4 DB を作る."""
+    """最新版から v5 オブジェクトを除き、実スキーマ相当の v4 DB を作る."""
     conn = init_db(path)
     try:
         conn.execute("DROP TABLE digests")
@@ -37,7 +37,7 @@ def test_v4_db_migrates_to_v5_with_digests_table(tmp_path: Path) -> None:
     try:
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(digests)")}
-        assert version == SCHEMA_VERSION == 5
+        assert version == SCHEMA_VERSION
         assert columns == {"id", "created_at", "period_start", "period_end", "content_md"}
     finally:
         conn.close()

@@ -28,7 +28,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 >   RSS / Pages / Discord / MCP 一覧・集計から除外(検索のみ全コーパス対象を維持)
 > - DB マイグレーションが ALTER 非対応 (P3) — `MIGRATIONS` による逐次適用基盤を実装し、
 >   schema v3 (`articles.duplicate_of`) を ALTER TABLE で追加
-> - 制限: 既存 DB のバックフィルは行わないため、v3 化前から存在する転載重複は除外されない
+> - ~~制限: 既存 DB のバックフィルは行わないため、v3 化前から存在する転載重複は除外されない~~ (2026-08-03、schema v6 のバックフィルで解消)
 
 ## TL;DR
 
