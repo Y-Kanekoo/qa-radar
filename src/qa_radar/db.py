@@ -207,6 +207,7 @@ def _migrate_to_v6(conn: sqlite3.Connection) -> None:
     ).fetchall()
     newly_marked_count = 0
     corrected_count = 0
+    released_count = 0
 
     for _, grouped_rows in groupby(rows, key=lambda row: str(row["body_hash"])):
         group = list(grouped_rows)
@@ -219,7 +220,14 @@ def _migrate_to_v6(conn: sqlite3.Connection) -> None:
         expected_duplicate_of: dict[int, int | None] = {int(row["id"]): None for row in group}
         if len(source_ids) >= 2:
             original_id = int(eligible[0]["id"])
-            expected_duplicate_of.update({int(row["id"]): original_id for row in eligible[1:]})
+            original_source_id = int(eligible[0]["source_id"])
+            expected_duplicate_of.update(
+                {
+                    int(row["id"]): original_id
+                    for row in eligible[1:]
+                    if int(row["source_id"]) != original_source_id
+                }
+            )
 
         for row in group:
             article_id = int(row["id"])
@@ -236,13 +244,16 @@ def _migrate_to_v6(conn: sqlite3.Connection) -> None:
             )
             if current is None and expected is not None:
                 newly_marked_count += 1
+            elif expected is None:
+                released_count += 1
             else:
                 corrected_count += 1
 
     logger.info(
-        "schema v6: %d 件を転載重複としてマークし、既存マークを %d 件補正しました",
+        "schema v6: %d 件をマーク / %d 件補正 / %d 件解除",
         newly_marked_count,
         corrected_count,
+        released_count,
     )
 
 

@@ -582,10 +582,7 @@ def test_v5_db_migrates_to_v6_and_backfills_duplicates(
 
         assert version == 6
         assert actual == expected
-        assert (
-            "schema v6: 5 件を転載重複としてマークし、既存マークを 3 件補正しました"
-            in caplog.messages
-        )
+        assert "schema v6: 5 件をマーク / 1 件補正 / 2 件解除" in caplog.messages
 
         # データ移行関数自体を再実行しても期待状態を変えない。
         db_module._migrate_to_v6(conn)
@@ -594,6 +591,78 @@ def test_v5_db_migrates_to_v6_and_backfills_duplicates(
             for row in conn.execute("SELECT id, duplicate_of FROM articles").fetchall()
         }
         assert after_second_run == expected
+    finally:
+        conn.close()
+
+
+def test_v6_backfill_does_not_mark_articles_from_original_source(tmp_path: Path) -> None:
+    """同一ソースの記事を巻き込まず、挿入時と同じクロスソース判定にする."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn, count=1)
+        for article_id, source_id, published_at in (
+            (801, 1, 100),
+            (802, 1, 150),
+            (803, 2, 200),
+        ):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="same-and-cross-source",
+                body="く" * 200,
+                published_at=published_at,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        actual = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles ORDER BY id").fetchall()
+        }
+        assert actual == {801: None, 802: None, 803: 801}
+    finally:
+        conn.close()
+
+
+def test_v6_backfill_marks_only_eligible_rows_in_mixed_length_group(tmp_path: Path) -> None:
+    """同じハッシュの混在グループでも200文字ガードを満たす行だけをマークする."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn, count=2)
+        for article_id, source_id, body, published_at in (
+            (811, 1, "け" * 200, 100),
+            (812, 2, "こ" * 199, 150),
+            (813, 3, "さ" * 200, 200),
+        ):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="mixed-body-length",
+                body=body,
+                published_at=published_at,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        actual = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles ORDER BY id").fetchall()
+        }
+        assert actual == {811: None, 812: None, 813: 811}
     finally:
         conn.close()
 
