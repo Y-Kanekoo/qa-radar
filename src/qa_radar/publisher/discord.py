@@ -94,7 +94,7 @@ async def send_notification(
 
             if resp.status_code == 429 and attempt < max_retries:
                 # Discord は秒またはJSON形式で retry_after を返す
-                retry_after = _parse_retry_after(resp)
+                retry_after = parse_retry_after(resp)
                 logger.info("Discord rate limited, %ss 待機して再試行", retry_after)
                 await asyncio.sleep(retry_after)
                 continue
@@ -111,7 +111,7 @@ async def send_notification(
             await used.aclose()
 
 
-def _parse_retry_after(resp: httpx.Response) -> float:
+def parse_retry_after(resp: httpx.Response) -> float:
     """Retry-After ヘッダ or JSON ボディから待機秒を取得する."""
     header = resp.headers.get("retry-after")
     if header is not None:

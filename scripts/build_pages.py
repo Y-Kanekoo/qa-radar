@@ -1,7 +1,7 @@
 """GitHub Pages 用のフィード・HTML 一括生成.
 
 DB から記事を読み、`docs/_build/` 配下に `feed.atom`, `feed.xml`, `index.html`,
-`sources.html`, `tags.html`, `tags/<tag>.xml` を生成する.
+`digest.html`, `sources.html`, `tags.html`, `tags/<tag>.xml` を生成する.
 
 使用例:
     uv run python scripts/build_pages.py
@@ -17,12 +17,15 @@ from pathlib import Path
 
 from qa_radar.db import init_db
 from qa_radar.publisher.pages import (
+    render_digest_page,
     render_index,
     render_sources_page,
     render_tags_page,
     write_html,
 )
 from qa_radar.publisher.queries import (
+    fetch_digest_stats,
+    fetch_latest_digest,
     fetch_recent_articles,
     fetch_source_summaries,
     fetch_tag_summaries,
@@ -106,6 +109,26 @@ def main(argv: list[str] | None = None) -> int:
         articles = fetch_recent_articles(conn, limit=args.limit)
         sources = fetch_source_summaries(conn)
         tags = fetch_tag_summaries(conn, min_count=args.min_tag_count)
+        try:
+            digest = fetch_latest_digest(conn)
+            digest_stats = (
+                fetch_digest_stats(
+                    conn,
+                    period_start=digest.period_start,
+                    period_end=digest.period_end,
+                )
+                if digest is not None
+                else None
+            )
+        except Exception:
+            # ダイジェストは付加的な公開物。取得失敗で既存フィードや Pages 全体を
+            # 巻き添えにせず、プレースホルダー表示でビルドを続行する。
+            log.warning(
+                "最新ダイジェストの取得に失敗。プレースホルダーでビルドを続行します。",
+                exc_info=True,
+            )
+            digest = None
+            digest_stats = None
 
         log.info(
             "articles=%d, sources=%d, tags=%d, source_count=%s",
@@ -147,6 +170,15 @@ def main(argv: list[str] | None = None) -> int:
 
         # HTML
         write_html(render_index(articles, source_count=source_count), output / "index.html")
+        write_html(
+            render_digest_page(
+                digest,
+                source_count=source_count,
+                article_count=digest_stats.article_count if digest_stats is not None else None,
+                digest_source_count=digest_stats.source_count if digest_stats is not None else None,
+            ),
+            output / "digest.html",
+        )
         write_html(render_sources_page(sources, source_count=source_count), output / "sources.html")
         write_html(render_tags_page(tags, source_count=source_count), output / "tags.html")
 

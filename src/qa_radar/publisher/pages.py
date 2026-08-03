@@ -6,12 +6,18 @@ HTML エスケープは `html.escape` で対応する.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
 from qa_radar.publisher.rss import FeedItem, main_feed_url, tag_feed_url
+
+_DIGEST_URL_RE = re.compile(
+    r"https?://(?:(?!https?://)[^\s、。…）)」』,;:])*?(?="
+    r"[、。…）)」』,;:]|\.(?=\s|[、。…）)」』,;:]|[^\x00-\x7F]|$)|\s|https?://|$)"
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,17 @@ class TagSummary:
     article_count: int
 
 
+@dataclass(frozen=True)
+class Digest:
+    """digest.html 表示用の週刊ダイジェスト."""
+
+    id: int
+    created_at: int
+    period_start: int
+    period_end: int
+    content_md: str
+
+
 # ---------------- 共通テンプレート ----------------
 
 _HTML_HEADER = """<!DOCTYPE html>
@@ -54,6 +71,7 @@ _HTML_HEADER = """<!DOCTYPE html>
 <p class="subtitle">QA/テスト自動化のニュースアグリゲーター</p>
 <nav>
 <a href="{root_path}">最新記事</a>
+<a href="digest.html">週刊ダイジェスト</a>
 <a href="sources.html">ソース一覧</a>
 <a href="tags.html">タグ一覧</a>
 <a href="feed.atom">Atom</a>
@@ -109,6 +127,24 @@ def _render_footer() -> str:
 def _format_date(unix_seconds: int) -> str:
     """unix秒を YYYY-MM-DD で表示."""
     return datetime.fromtimestamp(unix_seconds, tz=UTC).strftime("%Y-%m-%d")
+
+
+def format_digest_meta(
+    *,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+    article_count: int,
+    source_count: int,
+) -> str:
+    """コード集計値からダイジェストの期間・件数ヘッダを組み立てる."""
+    period = f"{_format_date(period_start)}〜{_format_date(period_end)}"
+    introduced_count = min(article_count, len(set(_DIGEST_URL_RE.findall(content_md))))
+    omitted_count = article_count - introduced_count
+    return (
+        f"対象期間: {period} / 全{article_count}件・{source_count}ソース / "
+        f"主要{introduced_count}件を紹介（他{omitted_count}件）"
+    )
 
 
 # ---------------- 個別ページ ----------------
@@ -202,6 +238,93 @@ def render_tags_page(tags: list[TagSummary], *, source_count: int | None = None)
     )
 
 
+def _render_digest_markdown(content_md: str) -> str:
+    """許可した最小限の Markdown を HTML に変換する.
+
+    見出し (`#` / `##`)、箇条書き (`-`)、通常行だけを扱う。すべての本文を
+    `html.escape` に通した後、http/https URL だけをリンク化する。
+    """
+    rendered: list[str] = []
+    in_list = False
+
+    def close_list() -> None:
+        nonlocal in_list
+        if in_list:
+            rendered.append("</ul>")
+            in_list = False
+
+    def render_text(text: str) -> str:
+        rendered_parts: list[str] = []
+        last_end = 0
+        for match in _DIGEST_URL_RE.finditer(text):
+            rendered_parts.append(escape(text[last_end : match.start()]))
+            url = escape(match.group(0))
+            rendered_parts.append(f'<a href="{url}" rel="noopener">{url}</a>')
+            last_end = match.end()
+        rendered_parts.append(escape(text[last_end:]))
+        return "".join(rendered_parts)
+
+    for line in content_md.splitlines():
+        if line.startswith("## "):
+            close_list()
+            rendered.append(f"<h3>{render_text(line[3:])}</h3>")
+        elif line.startswith("# "):
+            close_list()
+            rendered.append(f"<h2>{render_text(line[2:])}</h2>")
+        elif line.startswith("- "):
+            if not in_list:
+                rendered.append("<ul>")
+                in_list = True
+            rendered.append(f"<li>{render_text(line[2:])}</li>")
+        elif line.strip():
+            close_list()
+            rendered.append(f"<p>{render_text(line)}</p>")
+        else:
+            close_list()
+    close_list()
+    return "\n".join(rendered)
+
+
+def render_digest_page(
+    digest: Digest | None,
+    *,
+    source_count: int | None = None,
+    article_count: int | None = None,
+    digest_source_count: int | None = None,
+) -> str:
+    """最新の週刊ダイジェストを表示する HTML を返す."""
+    if digest is None:
+        body = (
+            '<section class="digest">'
+            "<h2>週刊 LLM ダイジェスト</h2>"
+            "<p>ダイジェストはまだ生成されていません。</p>"
+            "</section>"
+        )
+    else:
+        if article_count is not None and digest_source_count is not None:
+            meta = format_digest_meta(
+                period_start=digest.period_start,
+                period_end=digest.period_end,
+                content_md=digest.content_md,
+                article_count=article_count,
+                source_count=digest_source_count,
+            )
+        else:
+            period = f"{_format_date(digest.period_start)}〜{_format_date(digest.period_end)}"
+            meta = f"対象期間: {period}"
+        body = (
+            '<section class="digest">'
+            f'<p class="meta">{escape(meta)}</p>'
+            f"{_render_digest_markdown(digest.content_md)}"
+            "</section>"
+        )
+    return (
+        _render_header("週刊ダイジェスト — qa-radar", source_count=source_count)
+        + body
+        + _render_footer()
+    )
+
+
 # ---------------- 書き出し ----------------
 
 
@@ -213,10 +336,13 @@ def write_html(content: str, output_path: Path) -> Path:
 
 # 公開 URL ヘルパ (将来 about.html などで利用)
 __all__ = [
+    "Digest",
     "FeedItem",
     "SourceSummary",
     "TagSummary",
+    "format_digest_meta",
     "main_feed_url",
+    "render_digest_page",
     "render_index",
     "render_sources_page",
     "render_tags_page",

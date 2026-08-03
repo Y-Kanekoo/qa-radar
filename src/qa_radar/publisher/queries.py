@@ -8,9 +8,118 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 
-from qa_radar.publisher.pages import SourceSummary, TagSummary
+from qa_radar.publisher.pages import Digest, SourceSummary, TagSummary
 from qa_radar.publisher.rss import FeedItem
+
+
+@dataclass(frozen=True)
+class DigestStats:
+    """ダイジェスト対象期間の重複除外済み統計."""
+
+    article_count: int
+    source_count: int
+
+
+def fetch_digest_stats(
+    conn: sqlite3.Connection, *, period_start: int, period_end: int
+) -> DigestStats:
+    """対象期間の記事総数と、その記事を配信したソース数を SQL で集計する."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS article_count, COUNT(DISTINCT a.source_id) AS source_count
+        FROM articles a
+        WHERE a.duplicate_of IS NULL
+          AND a.published_at >= ?
+          AND a.published_at <= ?
+        """,
+        (period_start, period_end),
+    ).fetchone()
+    return DigestStats(
+        article_count=int(row["article_count"]),
+        source_count=int(row["source_count"]),
+    )
+
+
+def fetch_digest_articles(
+    conn: sqlite3.Connection,
+    *,
+    period_start: int,
+    period_end: int,
+    limit: int,
+) -> list[dict[str, object]]:
+    """ダイジェスト内部処理専用に、公開可能な最新記事を取得する.
+
+    MCP の公開上限とは分離し、SQL の SELECT 自体から body を除外して公開境界を守る。
+    """
+    if limit < 1:
+        raise ValueError("limit は 1 以上で指定してください")
+    rows = conn.execute(
+        """
+        SELECT a.title, a.url, a.snippet, a.tags_json, s.name AS source_name
+        FROM articles a JOIN sources s ON a.source_id = s.id
+        WHERE a.duplicate_of IS NULL
+          AND a.published_at >= ?
+          AND a.published_at <= ?
+        ORDER BY a.published_at DESC, a.id DESC
+        LIMIT ?
+        """,
+        (period_start, period_end, limit),
+    ).fetchall()
+    return [
+        {
+            "title": row["title"],
+            "url": row["url"],
+            "snippet": row["snippet"],
+            "tags": json.loads(row["tags_json"]) or [],
+            "source_name": row["source_name"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_latest_digest(conn: sqlite3.Connection) -> Digest | None:
+    """最新の週刊ダイジェストを1件取得する."""
+    row = conn.execute(
+        """
+        SELECT id, created_at, period_start, period_end, content_md
+        FROM digests
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    return Digest(
+        id=int(row["id"]),
+        created_at=int(row["created_at"]),
+        period_start=int(row["period_start"]),
+        period_end=int(row["period_end"]),
+        content_md=str(row["content_md"]),
+    )
+
+
+def insert_digest(
+    conn: sqlite3.Connection,
+    *,
+    created_at: int,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+) -> int:
+    """週刊ダイジェストを保存し、採番された ID を返す."""
+    cursor = conn.execute(
+        """
+        INSERT INTO digests (created_at, period_start, period_end, content_md)
+        VALUES (?, ?, ?, ?)
+        """,
+        (created_at, period_start, period_end, content_md),
+    )
+    conn.commit()
+    if cursor.lastrowid is None:  # pragma: no cover
+        raise RuntimeError("digests INSERT後の lastrowid が None")
+    return int(cursor.lastrowid)
 
 
 def fetch_recent_articles(

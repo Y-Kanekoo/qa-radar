@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Phase D1**: 公開済みメタデータだけを Claude Haiku に渡す週刊 LLM ダイジェストを追加。
+  schema v5 の `digests` テーブルへ保存し、Discord 配信と Pages の `digest.html` で公開する。
+  `health.yml` は `crawl.yml` と同じ concurrency group で DB 更新を直列化し、生成成功時の
+  スナップショットを GitHub Releases へ永続化
 - schema **v4**: FTS5 を `porter unicode61` から `trigram` へ再構築するマイグレーションを追加。
   既存記事を `rebuild` で全件再インデックスし、新規 DB も最初から trigram を使用。
   移行後は DB を `VACUUM` し、他プロセスのロックで失敗した場合は警告だけで起動を継続
