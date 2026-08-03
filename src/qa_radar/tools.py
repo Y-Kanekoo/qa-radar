@@ -47,6 +47,34 @@ def _escape_like_term(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _is_ascii_alnum(char: str) -> bool:
+    """文字が ASCII 英数字なら True を返す."""
+    return "A" <= char <= "Z" or "a" <= char <= "z" or "0" <= char <= "9"
+
+
+def word_boundary_match(text: str | None, term: str) -> int:
+    """term が ASCII 英数字の語境界で text に出現する場合は 1 を返す.
+
+    語境界は検索語の前後が文字列端、または ASCII 英数字 `[A-Za-z0-9]` 以外の
+    位置とする。ASCII 英字の大文字小文字は区別しない。
+    """
+    if text is None or not term:
+        return 0
+
+    normalized_term = term.lower()
+    term_length = len(term)
+    for start in range(len(text) - term_length + 1):
+        if text[start : start + term_length].lower() != normalized_term:
+            continue
+        if start > 0 and _is_ascii_alnum(text[start - 1]):
+            continue
+        end = start + term_length
+        if end < len(text) and _is_ascii_alnum(text[end]):
+            continue
+        return 1
+    return 0
+
+
 def _iso_to_unix(iso: str) -> int:
     """ISO8601 文字列を unix 秒へ変換. Z 表記もサポート."""
     if iso.endswith("Z"):
@@ -92,12 +120,19 @@ def search_articles_impl(
     語を FTS5、3文字未満の語を LIKE として AND 検索し、BM25 順で返す。全語が
     3文字未満の場合は LIKE のみを使い、公開日時の降順で返す。
 
-    LIKE で扱う3文字未満の語は部分一致であり、語境界を見ない。
+    LIKE で扱う3文字未満の語のうち、純 ASCII 英数語は語境界でも絞り込む。
+    非 ASCII 短語は日本語などに同じ語境界を適用できないため、従来どおり部分一致
+    とする。全短語では約2千件規模の全走査、混在時は FTS 絞り込み後の評価なので、
+    語境界判定の追加コストは小さい。
     """
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
+
+    # 接続は呼び出し元から渡されるため、検索のたびに対象接続へ冪等に登録する。
+    # create_function は低コストで、同名・同引数個数の登録は安全に置き換えられる。
+    conn.create_function("word_boundary_match", 2, word_boundary_match, deterministic=True)
 
     # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
     terms = query.split()
@@ -125,12 +160,22 @@ def search_articles_impl(
     # trigram では3文字未満の語を検索できない。混在時は長語の FTS 絞り込みを維持し、
     # 短語だけを LIKE にする。全短語時の約2千件規模の全走査は許容済み。
     for term in short_terms:
-        where.append(
-            "(a.title LIKE ? ESCAPE '\\' OR a.body LIKE ? ESCAPE '\\' "
-            "OR a.tags_json LIKE ? ESCAPE '\\')"
-        )
         pattern = f"%{_escape_like_term(term)}%"
-        params.extend([pattern, pattern, pattern])
+        if term.isascii() and term.isalnum():
+            where.append(
+                "((a.title LIKE ? ESCAPE '\\' AND word_boundary_match(a.title, ?)) "
+                "OR (a.body LIKE ? ESCAPE '\\' AND word_boundary_match(a.body, ?)) "
+                "OR (a.tags_json LIKE ? ESCAPE '\\' "
+                "AND word_boundary_match(a.tags_json, ?)))"
+            )
+            params.extend([pattern, term, pattern, term, pattern, term])
+        else:
+            # 日本語などの非 ASCII 短語には ASCII の語境界を適用せず、部分一致を保つ。
+            where.append(
+                "(a.title LIKE ? ESCAPE '\\' OR a.body LIKE ? ESCAPE '\\' "
+                "OR a.tags_json LIKE ? ESCAPE '\\')"
+            )
+            params.extend([pattern, pattern, pattern])
 
     if date_from:
         where.append("a.published_at >= ?")
