@@ -47,6 +47,42 @@ CREATE TABLE articles (
     UNIQUE(source_id, guid)
 );
 
+CREATE INDEX idx_articles_published ON articles(published_at DESC);
+CREATE INDEX idx_articles_source ON articles(source_id);
+CREATE INDEX idx_articles_body_hash ON articles(body_hash);
+
+CREATE VIRTUAL TABLE articles_fts USING fts5(
+    title, body, tags_json,
+    content='articles', content_rowid='id',
+    tokenize='porter unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER articles_ai AFTER INSERT ON articles BEGIN
+  INSERT INTO articles_fts(rowid, title, body, tags_json)
+  VALUES (new.id, new.title, COALESCE(new.body, ''), new.tags_json);
+END;
+
+CREATE TRIGGER articles_ad AFTER DELETE ON articles BEGIN
+  INSERT INTO articles_fts(articles_fts, rowid, title, body, tags_json)
+  VALUES('delete', old.id, old.title, COALESCE(old.body, ''), old.tags_json);
+END;
+
+CREATE TRIGGER articles_au AFTER UPDATE ON articles BEGIN
+  INSERT INTO articles_fts(articles_fts, rowid, title, body, tags_json)
+  VALUES('delete', old.id, old.title, COALESCE(old.body, ''), old.tags_json);
+  INSERT INTO articles_fts(rowid, title, body, tags_json)
+  VALUES (new.id, new.title, COALESCE(new.body, ''), new.tags_json);
+END;
+
+CREATE TABLE crawl_runs (
+    id INTEGER PRIMARY KEY,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    sources_processed INTEGER DEFAULT 0,
+    articles_added INTEGER DEFAULT 0,
+    errors_json TEXT
+);
+
 CREATE TABLE article_notifications (
     id INTEGER PRIMARY KEY,
     article_id INTEGER NOT NULL REFERENCES articles(id),
@@ -174,6 +210,26 @@ def _create_v2_db(path: Path) -> None:
         conn.close()
 
 
+def _create_v3_db(path: Path) -> None:
+    """porter FTS と日本語記事を含む実スキーマ相当の v3 DB を作る."""
+    _create_v2_db(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("ALTER TABLE articles ADD COLUMN duplicate_of INTEGER REFERENCES articles(id)")
+        conn.execute("UPDATE schema_version SET version = 3")
+        conn.execute(
+            "UPDATE articles SET title = ?, body = ?, tags_json = ? WHERE id = 10",
+            (
+                "品質保証の実践",
+                "継続的なソフトウェアテストと自動化を紹介します",
+                '["テスト自動化"]',
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_init_db_creates_all_tables(tmp_path: Path) -> None:
     """sources / articles / crawl_runs / schema_version がすべて生成される."""
     conn = init_db(tmp_path / "test.db")
@@ -208,20 +264,24 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_new_db_has_duplicate_of_column_from_initial_schema(tmp_path: Path) -> None:
-    """新規 DB はマイグレーションなしで v3 列を持つ."""
+def test_new_db_uses_v4_schema_with_trigram_fts(tmp_path: Path) -> None:
+    """新規 DB はマイグレーションなしで v4 列と trigram FTS を持つ."""
     conn = init_db(tmp_path / "test.db")
     try:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        fts_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'"
+        ).fetchone()["sql"]
         assert "duplicate_of" in columns
-        assert version == 3
+        assert version == 4
+        assert "tokenize='trigram'" in fts_sql
     finally:
         conn.close()
 
 
-def test_v2_db_migrates_to_v3_without_data_loss(tmp_path: Path) -> None:
-    """v2 の既存記事を保ったまま duplicate_of 列を追加する."""
+def test_v2_db_migrates_through_v3_to_v4_without_data_loss(tmp_path: Path) -> None:
+    """v2 の既存記事を保ったまま duplicate_of と trigram FTS を追加する."""
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
 
@@ -231,7 +291,7 @@ def test_v2_db_migrates_to_v3_without_data_loss(tmp_path: Path) -> None:
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
         article = conn.execute("SELECT * FROM articles WHERE id = 10").fetchone()
         assert "duplicate_of" in columns
-        assert version == 3
+        assert version == 4
         assert article["guid"] == "legacy-guid"
         assert article["body"] == "Legacy body"
         assert article["duplicate_of"] is None
@@ -239,8 +299,116 @@ def test_v2_db_migrates_to_v3_without_data_loss(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_v1_db_migrates_through_v2_to_v3(tmp_path: Path) -> None:
-    """v1 の実 DB が v2→v3 と逐次適用され、既存データと FTS が保たれる."""
+def test_v3_db_migrates_to_v4_and_rebuilds_trigram_fts(tmp_path: Path) -> None:
+    """v3 の記事を保ったまま FTS を trigram で再構築し、トリガも保持する."""
+    db_path = tmp_path / "test.db"
+    _create_v3_db(db_path)
+
+    old_conn = sqlite3.connect(db_path)
+    try:
+        old_hits = old_conn.execute(
+            "SELECT COUNT(*) FROM articles_fts WHERE articles_fts MATCH 'テスト'"
+        ).fetchone()[0]
+        assert old_hits == 0  # porter FTS では和文中の部分一致にならない
+    finally:
+        old_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        article = conn.execute("SELECT * FROM articles WHERE id = 10").fetchone()
+        fts_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'"
+        ).fetchone()["sql"]
+        triggers = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'articles_a_'"
+            )
+        }
+        test_hits = conn.execute(
+            "SELECT COUNT(*) AS c FROM articles_fts WHERE articles_fts MATCH 'テスト'"
+        ).fetchone()["c"]
+        automation_hits = conn.execute(
+            "SELECT COUNT(*) AS c FROM articles_fts WHERE articles_fts MATCH '自動化'"
+        ).fetchone()["c"]
+        freelist_count = conn.execute("PRAGMA freelist_count").fetchone()[0]
+
+        assert version == 4
+        assert article["guid"] == "legacy-guid"
+        assert article["title"] == "品質保証の実践"
+        assert article["body"] == "継続的なソフトウェアテストと自動化を紹介します"
+        assert article["tags_json"] == '["テスト自動化"]'
+        assert article["duplicate_of"] is None
+        assert "tokenize='trigram'" in fts_sql
+        assert triggers == {"articles_ai", "articles_ad", "articles_au"}
+        assert test_hits == 1
+        assert automation_hits == 1
+        assert freelist_count == 0
+    finally:
+        conn.close()
+
+
+def test_vacuum_runs_once_only_when_migration_is_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """マイグレーション適用後だけ、トランザクション外で VACUUM を1回実行する."""
+    db_path = tmp_path / "test.db"
+    _create_v3_db(db_path)
+    real_connect = sqlite3.connect
+    statements: list[str] = []
+
+    def traced_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+        conn = real_connect(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(db_module.sqlite3, "connect", traced_connect)
+
+    conn = init_db(db_path)
+    conn.close()
+    assert [sql for sql in statements if sql.strip().upper() == "VACUUM"] == ["VACUUM"]
+
+    statements.clear()
+    conn = init_db(db_path)
+    conn.close()
+    assert not any(sql.strip().upper() == "VACUUM" for sql in statements)
+
+
+def test_init_db_continues_when_vacuum_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """移行直後に別接続が書き込み中でも VACUUM 失敗だけを隔離する."""
+    db_path = tmp_path / "test.db"
+    _create_v3_db(db_path)
+    lock_conn = sqlite3.connect(db_path)
+    real_apply_migrations = db_module._apply_migrations
+
+    def apply_migrations_and_lock(conn: sqlite3.Connection, current_version: int) -> bool:
+        applied = real_apply_migrations(conn, current_version)
+        conn.execute("PRAGMA busy_timeout = 0")
+        lock_conn.execute("BEGIN IMMEDIATE")
+        return applied
+
+    monkeypatch.setattr(db_module, "_apply_migrations", apply_migrations_and_lock)
+
+    try:
+        with caplog.at_level("WARNING", logger="qa_radar.db"):
+            conn = init_db(db_path)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+            assert version == SCHEMA_VERSION
+        finally:
+            conn.close()
+    finally:
+        lock_conn.rollback()
+        lock_conn.close()
+
+    assert "VACUUM をスキップしました(他プロセスが DB 使用中)" in caplog.messages
+
+
+def test_v1_db_migrates_through_v2_v3_and_v4(tmp_path: Path) -> None:
+    """v1 の実 DB が v2→v3→v4 と逐次適用され、既存データと FTS が保たれる."""
     db_path = tmp_path / "test.db"
     _create_v1_db(db_path)
 
@@ -259,7 +427,7 @@ def test_v1_db_migrates_through_v2_to_v3(tmp_path: Path) -> None:
             "SELECT COUNT(*) AS c FROM articles_fts WHERE articles_fts MATCH 'legacy'"
         ).fetchone()["c"]
 
-        assert version == 3
+        assert version == 4
         assert "article_notifications" in tables  # v1→v2
         assert {"idx_notifications_channel", "idx_notifications_article"} <= indexes
         assert "duplicate_of" in columns  # v2→v3
@@ -271,7 +439,7 @@ def test_v1_db_migrates_through_v2_to_v3(tmp_path: Path) -> None:
 
 
 def test_schema_version_table_without_row_is_rejected(tmp_path: Path) -> None:
-    """行だけ失われた DB を空 DB と誤認せず、壊れた v3 を刻まない."""
+    """行だけ失われた DB を空 DB と誤認せず、最新版を刻まない."""
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     raw_conn = sqlite3.connect(db_path)
@@ -299,7 +467,7 @@ def test_apply_migrations_skips_versions_already_applied_by_another_process(
 ) -> None:
     """トランザクション内でバージョンを読み直し、二重適用を避ける.
 
-    バージョン読み取り後に別プロセスが v3 化した状況を、v3 の DB に対して
+    バージョン読み取り後に別プロセスが最新版へ移行した状況を、v4 の DB に対して
     `_apply_migrations(conn, 2)` を直接呼ぶことで再現する。
     """
     db_path = tmp_path / "test.db"
@@ -309,36 +477,40 @@ def test_apply_migrations_skips_versions_already_applied_by_another_process(
 
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
         columns = [row["name"] for row in conn.execute("PRAGMA table_info(articles)")]
-        assert version == 3
+        assert version == 4
         assert columns.count("duplicate_of") == 1
     finally:
         conn.close()
 
 
-def test_migrations_are_applied_sequentially_through_dummy_v4(
+def test_migrations_are_applied_sequentially_through_dummy_v5(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """v2→v3 の後に一時登録した v4 が順番に適用される."""
+    """v2→v3→v4 の後に一時登録した v5 が順番に適用される."""
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     applied: list[int] = []
 
-    def migrate_to_v4(conn: sqlite3.Connection) -> None:
+    def migrate_to_v5(conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         assert "duplicate_of" in columns
+        fts_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'"
+        ).fetchone()["sql"]
+        assert "tokenize='trigram'" in fts_sql
         conn.execute("ALTER TABLE articles ADD COLUMN migration_probe INTEGER")
-        applied.append(4)
+        applied.append(5)
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 4)
-    monkeypatch.setitem(db_module.MIGRATIONS, 4, migrate_to_v4)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 5)
+    monkeypatch.setitem(db_module.MIGRATIONS, 5, migrate_to_v5)
 
     conn = init_db(db_path)
     try:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert applied == [4]
+        assert applied == [5]
         assert "migration_probe" in columns
-        assert version == 4
+        assert version == 5
     finally:
         conn.close()
 
@@ -355,8 +527,8 @@ def test_failed_migration_rolls_back_schema_and_version(
         conn.execute("ALTER TABLE articles ADD COLUMN unfinished INTEGER")
         raise RuntimeError("意図した失敗")
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 4)
-    monkeypatch.setitem(db_module.MIGRATIONS, 4, failing_migration)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 5)
+    monkeypatch.setitem(db_module.MIGRATIONS, 5, failing_migration)
 
     with pytest.raises(RuntimeError, match="意図した失敗"):
         init_db(db_path)
@@ -366,7 +538,7 @@ def test_failed_migration_rolls_back_schema_and_version(
         columns = {row[1] for row in raw_conn.execute("PRAGMA table_info(articles)")}
         version = raw_conn.execute("SELECT version FROM schema_version").fetchone()[0]
         assert "unfinished" not in columns
-        assert version == 3
+        assert version == 4
     finally:
         raw_conn.close()
 
@@ -376,11 +548,11 @@ def test_newer_database_version_is_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     raw_conn = sqlite3.connect(db_path)
-    raw_conn.execute("UPDATE schema_version SET version = 4")
+    raw_conn.execute("UPDATE schema_version SET version = 5")
     raw_conn.commit()
     raw_conn.close()
 
-    with pytest.raises(RuntimeError, match=r"DB=4 > コード=3"):
+    with pytest.raises(RuntimeError, match=r"DB=5 > コード=4"):
         init_db(db_path)
 
 

@@ -4,9 +4,8 @@
 
 - WAL モード: 並列読み取り（クローラー実行中に MCP も同DBを開く想定）
 - 外部コンテンツ FTS5 (`content='articles'`): ストレージ二重持ちを避け、トリガで同期
-- `tokenize='porter unicode61 remove_diacritics 2'`:
-    英語は porter stemming, アクセント記号は除去. 日本語は分かち書きしないが
-    タイトル・タグの完全一致検索は機能する.
+- `tokenize='trigram'`: 3文字以上の日本語・英語を部分一致検索. 3文字未満の語を
+    含むクエリは検索ツール側で FTS と LIKE を組み合わせる.
 - `schema_version` テーブル: 将来のマイグレーション用バージョン番号を保持
 
 **注意 (foot-gun)**: `_SCHEMA_SQL` は **新規 DB の作成にしか使われない**.
@@ -17,11 +16,14 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-SCHEMA_VERSION = 3  # v3: articles.duplicate_of を追加
+logger = logging.getLogger("qa_radar.db")
+
+SCHEMA_VERSION = 4  # v4: FTS5 を trigram トークナイザで再構築
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -73,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_body_hash ON articles(body_hash);
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
     title, body, tags_json,
     content='articles', content_rowid='id',
-    tokenize='porter unicode61 remove_diacritics 2'
+    tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS articles_ai AFTER INSERT ON articles BEGIN
@@ -143,11 +145,32 @@ def _migrate_to_v3(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE articles ADD COLUMN duplicate_of INTEGER REFERENCES articles(id)")
 
 
-# キーは適用後のバージョン。将来の変更も 4: migration の形で逐次追加する。
+def _migrate_to_v4(conn: sqlite3.Connection) -> None:
+    """v3 から v4 へ FTS5 を trigram トークナイザで再構築する.
+
+    同期トリガは articles テーブルに属し、FTS テーブルを DROP しても残る。呼び出し元の
+    BEGIN IMMEDIATE が同時書き込みを防ぐため、DROP から再作成までの間にトリガが発火する
+    こともない。再作成後に articles 本体の全件を rebuild する。
+    """
+    conn.execute("DROP TABLE articles_fts")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE articles_fts USING fts5(
+            title, body, tags_json,
+            content='articles', content_rowid='id',
+            tokenize='trigram'
+        )
+        """
+    )
+    conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('rebuild')")
+
+
+# キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
 # 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
     2: _migrate_to_v2,
     3: _migrate_to_v3,
+    4: _migrate_to_v4,
 }
 
 
@@ -157,7 +180,7 @@ def _get_schema_version(conn: sqlite3.Connection) -> int | None:
     Raises:
         RuntimeError: テーブルはあるのにバージョン行が無い場合. 空の新規 DB と
             区別できずに最新スキーマを刻むと、既存 articles に列が追加されないまま
-            v3 と記録されて自己修復不能になるため、明示的に異常として止める.
+            最新版と記録されて自己修復不能になるため、明示的に異常として止める.
     """
     table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
@@ -175,13 +198,14 @@ def _get_schema_version(conn: sqlite3.Connection) -> int | None:
     return int(row["version"])
 
 
-def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
+def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> bool:
     """current_version の次から SCHEMA_VERSION まで逐次適用する.
 
     別プロセス (常駐 MCP サーバ等) が同時に init_db を実行しても二重適用しないよう、
     書き込みロックを取る `BEGIN IMMEDIATE` で開始し、トランザクション内でバージョンを
-    読み直してから適用する.
+    読み直してから適用する. この接続で1件以上適用した場合は True を返す.
     """
+    applied = False
     for target_version in range(current_version + 1, SCHEMA_VERSION + 1):
         migration = MIGRATIONS.get(target_version)
         if migration is None:
@@ -203,6 +227,8 @@ def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> None:
             raise
         else:
             conn.commit()
+            applied = True
+    return applied
 
 
 def init_db(path: Path) -> sqlite3.Connection:
@@ -242,7 +268,14 @@ def init_db(path: Path) -> sqlite3.Connection:
                 "より新しいコードでDBが作られている可能性があります."
             )
         else:
-            _apply_migrations(conn, current_version)
+            migrations_applied = _apply_migrations(conn, current_version)
+            if migrations_applied:
+                # VACUUM はトランザクション内では実行できないため、全マイグレーション
+                # 適用後に、v5 以降の軽微な移行を含め無条件で1回だけ実行する。
+                try:
+                    conn.execute("VACUUM")
+                except sqlite3.Error:
+                    logger.warning("VACUUM をスキップしました(他プロセスが DB 使用中)")
     except Exception:
         conn.close()
         raise

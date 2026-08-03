@@ -41,7 +41,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | MCP support | ✅ | ❌ | ✅ |
 | Multi-language (JP+EN) | ✅ | JP only | depends |
 | AI/ML tagging | ✅ rule-based + opt LLM | ❌ | ❌ |
-| Full-text search (FTS5) | ✅ | ❌ | ❌ |
+| Full-text search (FTS5 trigram) | ✅ | ❌ | ❌ |
 | Tool releases (13 repos) | ✅ | ❌ | ❌ |
 | Academic papers (arxiv) | ✅ | ❌ | ❌ |
 
@@ -65,7 +65,7 @@ See [config/sources.yaml](config/sources.yaml) for the full list and
 
 The local MCP server exposes 5 tools you can call from Claude Desktop / Claude Code:
 
-- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5+BM25
+- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5 trigram + BM25; mixed queries use FTS for terms of 3+ characters and literal LIKE conditions for shorter terms, while all-short queries use LIKE ordered by publication date
 - `list_recent(days, source?, tag?, limit)` — recent articles
 - `get_article(article_id, include_body)` — article details (body defaults to off)
 - `list_sources()` — aggregated sources with counts
@@ -114,6 +114,9 @@ For development with a local clone:
 ```
 
 DB path resolution order: `QA_RADAR_DB_PATH` env var > repo-local `data/articles.db` > `~/Library/Caches/qa-radar/articles.db` (macOS).
+
+SQLite 3.34+ is required for the FTS5 trigram tokenizer.
+Known trade-off: trigram does not provide `remove_diacritics`, so `café` and `cafe` are distinct search terms.
 
 
 ## Development setup

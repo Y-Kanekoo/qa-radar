@@ -26,6 +26,7 @@ from typing import Any
 BM25_WEIGHT_TITLE = 5.0
 BM25_WEIGHT_BODY = 1.0
 BM25_WEIGHT_TAGS = 2.0
+MAX_SHORT_SEARCH_TERMS = 50
 
 
 def _fts5_safe_query(query: str) -> str:
@@ -39,6 +40,11 @@ def _fts5_safe_query(query: str) -> str:
     if not terms:
         return '""'  # 空クエリ
     return " ".join('"' + t.replace('"', '""') + '"' for t in terms)
+
+
+def _escape_like_term(term: str) -> str:
+    """LIKE の検索語に含まれるエスケープ文字とワイルドカードを無効化する."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _iso_to_unix(iso: str) -> int:
@@ -80,15 +86,51 @@ def search_articles_impl(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """記事を全文検索する (FTS5 + BM25)."""
+    """記事を全文検索する.
+
+    全語が3文字以上なら FTS5 + BM25、長語と短語が混在する場合は3文字以上の
+    語を FTS5、3文字未満の語を LIKE として AND 検索し、BM25 順で返す。全語が
+    3文字未満の場合は LIKE のみを使い、公開日時の降順で返す。
+
+    LIKE で扱う3文字未満の語は部分一致であり、語境界を見ない。
+    """
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
 
     # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
-    where: list[str] = ["articles_fts MATCH ?"]
-    params: list[Any] = [_fts5_safe_query(query)]
+    terms = query.split()
+    long_terms = [term for term in terms if len(term) >= 3]
+    short_terms = [term for term in terms if len(term) < 3]
+    if len(short_terms) > MAX_SHORT_SEARCH_TERMS:
+        raise ValueError(f"短い語(3文字未満)が多すぎます(上限{MAX_SHORT_SEARCH_TERMS}語)")
+    where: list[str] = []
+    params: list[Any] = []
+
+    if not terms or long_terms:
+        where.append("articles_fts MATCH ?")
+        params.append(_fts5_safe_query(" ".join(long_terms) if terms else query))
+        from_clause = (
+            "articles_fts JOIN articles a ON a.id = articles_fts.rowid "
+            "JOIN sources s ON a.source_id = s.id"
+        )
+        order_by = (
+            f"bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})"
+        )
+    else:
+        from_clause = "articles a JOIN sources s ON a.source_id = s.id"
+        order_by = "a.published_at DESC, a.id DESC"
+
+    # trigram では3文字未満の語を検索できない。混在時は長語の FTS 絞り込みを維持し、
+    # 短語だけを LIKE にする。全短語時の約2千件規模の全走査は許容済み。
+    for term in short_terms:
+        where.append(
+            "(a.title LIKE ? ESCAPE '\\' OR a.body LIKE ? ESCAPE '\\' "
+            "OR a.tags_json LIKE ? ESCAPE '\\')"
+        )
+        pattern = f"%{_escape_like_term(term)}%"
+        params.extend([pattern, pattern, pattern])
 
     if date_from:
         where.append("a.published_at >= ?")
@@ -97,17 +139,16 @@ def search_articles_impl(
         where.append("a.published_at <= ?")
         params.append(_iso_to_unix(date_to))
     if tags:
-        where.append("(" + " AND ".join(["a.tags_json LIKE ?"] * len(tags)) + ")")
-        params.extend([f'%"{t}"%' for t in tags])
+        where.append("(" + " AND ".join(["a.tags_json LIKE ? ESCAPE '\\'"] * len(tags)) + ")")
+        params.extend([f'%"{_escape_like_term(tag)}"%' for tag in tags])
 
     where_clause = " AND ".join(where)
     sql = f"""
         SELECT a.id, a.title, a.url, a.snippet, a.author, a.published_at, a.tags_json,
                s.name AS source_name
-        FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid
-        JOIN sources s ON a.source_id = s.id
+        FROM {from_clause}
         WHERE {where_clause}
-        ORDER BY bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})
+        ORDER BY {order_by}
         LIMIT ? OFFSET ?
     """
     # limit+1 を取得して has_more を判定
@@ -150,8 +191,8 @@ def list_recent_impl(
         where.append("s.slug = ?")
         params.append(source)
     if tag:
-        where.append("a.tags_json LIKE ?")
-        params.append(f'%"{tag}"%')
+        where.append("a.tags_json LIKE ? ESCAPE '\\'")
+        params.append(f'%"{_escape_like_term(tag)}"%')
 
     where_clause = " AND ".join(where)
     sql = f"""
