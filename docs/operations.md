@@ -1,6 +1,6 @@
 # qa-radar 運用手順書
 
-> 最終更新: 2026-08-03 (Phase C-2)
+> 最終更新: 2026-08-03 (Phase D1)
 
 実運用 (GitHub Actions による自動クロール・配信) を維持するための手順書。
 開発手順は [README.md](../README.md) / [README.ja.md](../README.ja.md)、
@@ -11,8 +11,8 @@
 GitHub Actions の cron ワークフローは以下の2本立て。
 
 - `.github/workflows/crawl.yml`: 毎日3回、クロール〜配信〜デプロイの本番パイプライン
-- `.github/workflows/health.yml`: 毎週月曜、ソース健全性の Discord レポート + 実フィード疎通確認
-  (詳細は後述「週次ヘルスレポートの見方」)
+- `.github/workflows/health.yml`: 毎週月曜、週刊 LLM ダイジェスト、ソース健全性の Discord
+  レポート、実フィード疎通確認 (詳細は後述)
 
 ### crawl.yml
 
@@ -56,12 +56,14 @@ DB スナップショット (ステップ 5) は Pages 関連ステップ (ス�
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | 新着記事の通知用 Discord webhook | 推奨 (未設定でも実行は継続、通知のみスキップされる) |
 | `DISCORD_ALERT_WEBHOOK_URL` | 運用アラート通知用 (crawl 失敗検知)、および週次ヘルスレポート (`health.yml`) の送信先 | 使用中。未設定でも実行は継続 (crawl.yml のアラートはスキップ、health.yml のレポートは stdout 出力のみで exit 0) |
+| `ANTHROPIC_API_KEY` | 週刊 LLM ダイジェストの生成 (Claude Haiku、週1回) | 必要。未設定時は warning を出して生成・DB保存・Discord配信をスキップし exit 0 |
 
 登録方法 (`gh` CLI):
 
 ```bash
 gh secret set DISCORD_WEBHOOK_URL --repo Y-Kanekoo/qa-radar
 gh secret set DISCORD_ALERT_WEBHOOK_URL --repo Y-Kanekoo/qa-radar
+gh secret set ANTHROPIC_API_KEY --repo Y-Kanekoo/qa-radar
 ```
 
 (実行するとプロンプトで値の入力を求められる。標準入力から渡す場合は
@@ -112,6 +114,35 @@ retention (自動削除) を実装しない。
 - **監視方法**: 後述の週次ヘルスレポート (`health.yml` / `scripts/health_report.py`) が
   毎週 DB ファイルサイズを Discord へ報告するため、閾値接近は自然に気づける設計になっている
   (専用の容量アラートは設けていない)
+
+## 週刊 LLM ダイジェストの運用
+
+`.github/workflows/health.yml` は毎週月曜に `scripts/weekly_digest.py` を実行する。GitHub
+Releases から復元した DB の直近7日・最大120件の非重複記事を対象に、Claude Haiku が日本語の
+週報を生成する。入力は公開済みのタイトル、100字以内のスニペット、タグ、ソース名、元URLだけで、
+記事本文は取得も送信もしない。生成結果は schema v5 の `digests` テーブルへ保存し、stdout と
+`DISCORD_WEBHOOK_URL` へ出力する。次回の Pages ビルドでは最新1件を `digest.html` に表示する。
+
+必要な Secrets は `ANTHROPIC_API_KEY` と `DISCORD_WEBHOOK_URL`。前者が未設定または `anthropic`
+が利用できない場合は warning のうえ exit 0 で生成をスキップする。後者が未設定の場合は DB 保存まで
+行い、Discord 配信だけをスキップする。生成に成功したときだけ、同じ workflow 内で
+`publish_release.py --mode full --retention-days 7` を実行してダイジェスト入り DB を永続化する。
+`health.yml` と `crawl.yml` は concurrency group `crawl` を共有し、同じ DB スナップショットを
+同時に更新しない。
+
+失敗時は Actions の `Weekly LLM digest (生成 + Discord送信)` ステップを確認する。
+
+- `ANTHROPIC_API_KEY ... スキップ`: 設定漏れ。ジョブ自体は成功するがダイジェストは生成されない
+- `週刊ダイジェストの生成または DB 保存に失敗`: Anthropic API の障害・利用制限、または DB の
+  復元/マイグレーション異常を確認する。シークレット保護のため API の例外本文はログに出さない
+- `Discord 配信に失敗`: ダイジェストの DB 保存後に webhook 配信が失敗した状態。Webhook の失効や
+  429 継続を確認する。このステップは非0終了となり `alert` ジョブの対象になる
+
+ローカルで保存内容だけを確認する場合は、`ANTHROPIC_API_KEY` を環境変数へ設定して次を実行する。
+
+```bash
+uv run python scripts/weekly_digest.py --db-path data/articles.db
+```
 
 ## 週次ヘルスレポートの見方
 
