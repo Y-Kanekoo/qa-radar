@@ -114,6 +114,7 @@ jobs:
     needs: crawl-and-build
     if: ${{ inputs.skip_deploy != true }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -134,6 +135,7 @@ jobs:
     # `== 'failure'` 判定であれば誤発火しない。cancelled 時は発火させない。
     if: ${{ !cancelled() && (needs.crawl-and-build.result == 'failure' || needs.deploy.result == 'failure' || needs.crawl-and-build.outputs.notify_outcome == 'failure') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # checkout (読み取り専用) と Discord への通知送信しか行わないため、
     # ワークフロー全体の permissions (contents: write 等) を継承せず最小権限に絞る
     permissions:

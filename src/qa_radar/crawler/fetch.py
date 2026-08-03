@@ -14,6 +14,14 @@ from qa_radar import __version__
 USER_AGENT = f"qa-radar/{__version__} (+https://github.com/Y-Kanekoo/qa-radar)"
 DEFAULT_TIMEOUT = 30.0
 ACCEPT_HEADER = "application/atom+xml, application/rss+xml, application/xml, text/xml, */*"
+# リトライしても結果が変わらない TransportError のサブクラス.
+# URL スキーム不正 (UnsupportedProtocol) やクライアント側のプロトコル違反
+# (LocalProtocolError) はネットワークの一時的な障害ではなく、同じリクエストを
+# 繰り返しても常に同じ理由で失敗するため、即座に失敗させてリトライ回数を消費しない.
+PERMANENT_TRANSPORT_ERRORS: tuple[type[httpx.TransportError], ...] = (
+    httpx.UnsupportedProtocol,
+    httpx.LocalProtocolError,
+)
 
 
 async def _sleep(delay: float) -> None:
@@ -92,7 +100,7 @@ async def fetch_feed(
             try:
                 resp = await used_client.get(url, headers=headers)
             except httpx.TransportError as e:
-                if attempt < max_retries:
+                if attempt < max_retries and not isinstance(e, PERMANENT_TRANSPORT_ERRORS):
                     await _sleep(retry_base_delay * (2**attempt))
                     continue
                 return FetchResult(
