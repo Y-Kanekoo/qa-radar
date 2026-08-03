@@ -117,6 +117,8 @@ def search_articles_impl(
 ) -> dict[str, Any]:
     """記事を全文検索する.
 
+    `init_db()` で開いた接続（`word_boundary_match` 登録済み）が前提。
+
     全語が3文字以上なら FTS5 + BM25、長語と短語が混在する場合は3文字以上の
     語を FTS5、3文字未満の語を LIKE として AND 検索し、BM25 順で返す。全語が
     3文字未満の場合は LIKE のみを使い、公開日時の降順で返す。

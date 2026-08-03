@@ -126,6 +126,7 @@ def test_escape_like_term_treats_backslash_as_literal(tmp_path: Path) -> None:
         ("生成AIの活用", "AI", 1),
         ("DBに保存", "DB", 1),
         ("MAX_DB_SIZE", "DB", 1),
+        ("mongodb and a db here", "db", 1),
     ],
 )
 def test_word_boundary_match(text: str | None, term: str, expected: int) -> None:
@@ -218,6 +219,30 @@ def test_search_ascii_short_term_requires_word_boundaries(tmp_path: Path) -> Non
             "https://e.com/punctuation",
             "https://e.com/end",
         }
+    finally:
+        conn.close()
+
+
+def test_search_ascii_short_term_matches_body_after_title_partial_match(tmp_path: Path) -> None:
+    """title の語内一致を除外後も body の独立語を検索する."""
+    conn = _setup_db(tmp_path)
+    try:
+        sid = upsert_source(conn, _src())
+        insert_article(
+            conn,
+            _article(
+                sid,
+                "mongodb-with-db-body",
+                title="MongoDB migration",
+                body="our db is fast",
+            ),
+        )
+
+        result = search_articles_impl(conn, "DB")
+
+        assert [item["url"] for item in result["items"]] == [
+            "https://e.com/mongodb-with-db-body"
+        ]
     finally:
         conn.close()
 
