@@ -47,7 +47,7 @@ DB スナップショット (ステップ 5) は Pages 関連ステップ (ス�
 | Secret 名 | 用途 | 状態 |
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | 新着記事の通知用 Discord webhook | 推奨 (未設定でも実行は継続、通知のみスキップされる) |
-| `DISCORD_ALERT_WEBHOOK_URL` | 運用アラート通知用 (crawl 失敗検知など) | Phase B で使用予定。未実装のためまだ参照されない |
+| `DISCORD_ALERT_WEBHOOK_URL` | 運用アラート通知用 (crawl 失敗検知)、および週次ヘルスレポート (`health.yml`) の送信先 | 使用中。未設定でも実行は継続 (crawl.yml のアラートはスキップ、health.yml のレポートは stdout 出力のみで exit 0) |
 
 登録方法 (`gh` CLI):
 
@@ -89,6 +89,47 @@ gh run view <run-id> --repo Y-Kanekoo/qa-radar
 つまり: **`Crawl + tag` / `Build pages` の失敗 = 今回分のデータが Release に残らない (要調査。
 ただし次回実行時に再クロールされる)**、**`Configure Pages` 以降の Pages 系ステップの失敗 =
 サイト更新が反映されていないだけ (DB スナップショットは既に健在)**、と切り分けられる。
+
+## DB 容量の方針
+
+`data/articles.db` は 1 記事あたり約 11KB (本文・スニペット・メタデータ込み、実測値) で増加する。
+2026-08 時点の想定クロール量(44 ソース、1 日 3 回)であれば、当面は articles テーブルの
+retention (自動削除) を実装しない。
+
+- **理由**: 現状の増加ペースでは、閾値 200MB に達するまで年単位の猶予がある。retention は
+  「消してよい記事」の判断基準(法務上の掲載期限・ユーザー要望など)が定まっていない状態で
+  実装すると、後から要件が変わった際の手戻りリスクの方が大きい
+- **再検討のトリガー**: `data/articles.db` が **200MB** を超えた時点で、記事の
+  アーカイブ/削除方針(例: 1年以上前の記事を別ファイルに退避)を検討する
+- **監視方法**: 後述の週次ヘルスレポート (`health.yml` / `scripts/health_report.py`) が
+  毎週 DB ファイルサイズを Discord へ報告するため、閾値接近は自然に気づける設計になっている
+  (専用の容量アラートは設けていない)
+
+## 週次ヘルスレポートの見方
+
+`.github/workflows/health.yml` が毎週月曜 (JST 9:00 = UTC 0:00) に `scripts/health_report.py` を
+実行し、Discord (`DISCORD_ALERT_WEBHOOK_URL`) へソース健全性のダイジェストを送信する。
+
+**設計方針**: 実フィードへの追加アクセスは行わない。本番 cron (`crawl.yml`) が既に DB に
+書き込んでいる信号 (`sources.consecutive_errors`、`articles.published_at` /
+`articles.fetched_at`) を集計するだけにとどめ、死活監視の取得経路を二重化しない。
+実フィード疎通そのものの検証は、同じ `health.yml` 内で `uv run pytest --integration -v`
+(実フィードに接続する統合テスト、通常の CI では `--integration` フラグ未指定のため常時 skip) を
+別ステップとして実行することで担保する。
+
+レポートは以下の 3 セクションで構成される:
+
+1. **全体統計**: 総記事数・DB ファイルサイズ・直近 7 日の新規記事数
+2. **エラー中のソース**: `consecutive_errors > 0` の有効ソースを回数の多い順に列挙。
+   `DEFAULT_CONSECUTIVE_ERROR_THRESHOLD` (9 回) 以上は `⚠️危険`、それ未満は `注意` ラベル
+3. **新着停滞の疑いがあるソース**: 最終記事取得実績 (`published_at` / `fetched_at` の新しい方)
+   から 30 日以上経過を `新着なし(注意)`、90 日以上経過または記事取得実績なしを
+   `長期停止疑い` として抽出。論文誌等の低頻度ソースは正常でも該当しうるため断定表現は避けている
+
+**運用アクション**: `⚠️危険` ラベルのソースはフィード URL の死活・ToS 変更を疑って確認する。
+`長期停止疑い` はまず該当ソースが低頻度更新かどうかを確認し、そうでなければフィード停止を疑う。
+DB スナップショットが Releases に存在しない場合 (初回実行時など) はレポート自体をスキップし、
+GitHub Actions の run summary に warning として記録される。
 
 ## DB 復旧
 

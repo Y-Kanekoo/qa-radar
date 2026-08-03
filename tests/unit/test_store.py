@@ -8,8 +8,11 @@ from pathlib import Path
 from qa_radar.crawler.store import (
     ArticleRow,
     finish_crawl_run,
+    get_overall_stats,
     get_repeatedly_failing_sources,
     get_source_fetch_state,
+    get_source_staleness,
+    get_sources_with_errors,
     insert_article,
     start_crawl_run,
     update_source_fetch_state,
@@ -204,5 +207,191 @@ def test_crawl_run_lifecycle(tmp_path: Path) -> None:
         assert row["finished_at"] is not None
         errors = json.loads(row["errors_json"])
         assert errors[0]["slug"] == "x"
+    finally:
+        conn.close()
+
+
+# ---------------- get_sources_with_errors (週次ヘルスレポート用) ----------------
+
+
+def test_get_sources_with_errors_orders_by_count_desc(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid_a = upsert_source(conn, _make_source("a"))
+        sid_b = upsert_source(conn, _make_source("b"))
+        for _ in range(2):
+            update_source_fetch_state(conn, sid_a, etag=None, last_modified=None, success=False)
+        for _ in range(5):
+            update_source_fetch_state(conn, sid_b, etag=None, last_modified=None, success=False)
+        result = get_sources_with_errors(conn)
+        assert [s.slug for s in result] == ["b", "a"]
+        assert result[0].consecutive_errors == 5
+        assert result[1].consecutive_errors == 2
+    finally:
+        conn.close()
+
+
+def test_get_sources_with_errors_excludes_zero_and_disabled(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        upsert_source(conn, _make_source("healthy"))  # consecutive_errors=0
+        disabled = SourceConfig(
+            slug="disabled",
+            name="Disabled",
+            feed_url="https://example.com/feed2",
+            site_url=None,
+            language="en",
+            category="blog",
+            enabled=False,
+            fetch_policy=FetchPolicy(min_interval_seconds=0, max_items_per_fetch=10),
+            license_note="",
+        )
+        sid_disabled = upsert_source(conn, disabled)
+        update_source_fetch_state(conn, sid_disabled, etag=None, last_modified=None, success=False)
+        assert get_sources_with_errors(conn) == []
+    finally:
+        conn.close()
+
+
+# ---------------- get_source_staleness (週次ヘルスレポート用) ----------------
+
+
+def test_get_source_staleness_none_when_no_articles(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        upsert_source(conn, _make_source("empty"))
+        result = get_source_staleness(conn)
+        assert len(result) == 1
+        assert result[0].slug == "empty"
+        assert result[0].latest_activity_at is None
+    finally:
+        conn.close()
+
+
+def test_get_source_staleness_picks_max_of_published_and_fetched(tmp_path: Path) -> None:
+    """published_at と fetched_at のうち、記事間で最も新しい方が採用される."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source("s"))
+        # published_at が新しい記事 (fetched_at は insert_article 内部で現在時刻になるため
+        # 直接 UPDATE して past の値に揃え、published_at 側が勝つケースを作る)
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="g1",
+                url="https://e.com/1",
+                title="t1",
+                snippet="s1",
+                body_hash="h1",
+                body=None,
+                author=None,
+                published_at=2_000_000_000,
+            ),
+        )
+        conn.execute("UPDATE articles SET fetched_at = 1 WHERE guid = 'g1'")
+        conn.commit()
+        result = get_source_staleness(conn)
+        assert result[0].latest_activity_at == 2_000_000_000
+    finally:
+        conn.close()
+
+
+def test_get_source_staleness_excludes_disabled_sources(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        disabled = SourceConfig(
+            slug="disabled",
+            name="Disabled",
+            feed_url="https://example.com/feed2",
+            site_url=None,
+            language="en",
+            category="blog",
+            enabled=False,
+            fetch_policy=FetchPolicy(min_interval_seconds=0, max_items_per_fetch=10),
+            license_note="",
+        )
+        upsert_source(conn, disabled)
+        assert get_source_staleness(conn) == []
+    finally:
+        conn.close()
+
+
+# ---------------- get_overall_stats (週次ヘルスレポート用) ----------------
+
+
+def test_get_overall_stats_counts_total_and_recent(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source())
+        now = 2_000_000_000
+        eight_days_ago = now - 8 * 24 * 3600
+        three_days_ago = now - 3 * 24 * 3600
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="old",
+                url="https://e.com/old",
+                title="old",
+                snippet="s",
+                body_hash="old",
+                body=None,
+                author=None,
+                published_at=eight_days_ago,
+            ),
+        )
+        conn.execute("UPDATE articles SET fetched_at = ? WHERE guid = 'old'", (eight_days_ago,))
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="new",
+                url="https://e.com/new",
+                title="new",
+                snippet="s",
+                body_hash="new",
+                body=None,
+                author=None,
+                published_at=three_days_ago,
+            ),
+        )
+        conn.execute("UPDATE articles SET fetched_at = ? WHERE guid = 'new'", (three_days_ago,))
+        conn.commit()
+
+        stats = get_overall_stats(conn, now=now)
+        assert stats.total_articles == 2
+        assert stats.recent_7d_count == 1  # 8日前は対象外, 3日前のみ対象
+    finally:
+        conn.close()
+
+
+def test_get_overall_stats_boundary_at_exactly_7_days(tmp_path: Path) -> None:
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid = upsert_source(conn, _make_source())
+        now = 2_000_000_000
+        exactly_7_days_ago = now - 7 * 24 * 3600
+        insert_article(
+            conn,
+            ArticleRow(
+                source_id=sid,
+                guid="edge",
+                url="https://e.com/edge",
+                title="edge",
+                snippet="s",
+                body_hash="edge",
+                body=None,
+                author=None,
+                published_at=exactly_7_days_ago,
+            ),
+        )
+        conn.execute(
+            "UPDATE articles SET fetched_at = ? WHERE guid = 'edge'", (exactly_7_days_ago,)
+        )
+        conn.commit()
+
+        stats = get_overall_stats(conn, now=now)
+        assert stats.recent_7d_count == 1  # >= cutoff のため含まれる
     finally:
         conn.close()

@@ -118,7 +118,9 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
   (PR #18 で解消)
 - crawl.yml の結果可視化: 追加件数・失敗ソースを GitHub Actions の Step Summary に出力
 - MCP サーバーの E2E テスト(FastMCP の in-memory クライアントで 6 ツールを実呼び出し)
-- 週 1 の scheduled workflow で `--integration`(実フィード疎通)を実行し、死んだフィードを早期検知
+- ~~週 1 の scheduled workflow で `--integration`(実フィード疎通)を実行し、死んだフィードを早期検知~~
+  (Phase C-2 で解消: `.github/workflows/health.yml` — DB 信号 (`consecutive_errors` /
+  新着日時) の週次 Discord レポートに加え、`--integration` 実行で実フィード疎通も検証)
 - (PR #18 レビューでの積み残し、優先度低) `httpx.TransportError` を毎回律儀にリトライしており、
   ホスト全体がダウンしている場合の恒久エラー検知・早期打ち切り(サーキットブレーカー)がない
 - (PR #18 レビューでの積み残し) `.github/workflows/*.yml` の `actionlint` / `scripts/*.sh` の
