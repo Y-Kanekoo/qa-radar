@@ -11,10 +11,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from qa_radar.crawler.dedup import find_cross_source_original_id, is_known
+from qa_radar.crawler.dedup import CrossSourceDecision, is_known, resolve_cross_source_original
 from qa_radar.crawler.fetch import DEFAULT_TIMEOUT, RobotsCache, fetch_feed
 from qa_radar.crawler.normalize import (
-    compute_body_hash,
+    collapse_whitespace,
+    hash_normalized_body,
     make_snippet,
     normalize_published,
     normalize_url,
@@ -42,7 +43,13 @@ MIN_BODY_LENGTH_FOR_DEDUP = 200
 
 @dataclass
 class CrawlResult:
-    """`run_crawl()` の戻り値."""
+    """`run_crawl()` の戻り値.
+
+    Attributes:
+        duplicates_marked: 今回のクロールで `duplicate_of` が付いた記事の件数.
+            新規記事を転載としてマークした場合と、より古い本家が後から届いて
+            既存記事を付け替えた場合の両方を数える.
+    """
 
     sources_processed: int
     articles_added: int
@@ -166,11 +173,13 @@ async def _process_source(
             continue
         body_plain = strip_html(item.body)
         title_clean = item.title.strip()
-        body_hash = compute_body_hash(item.body)
-        duplicate_of = None
-        normalized_body_length = len(" ".join(body_plain.split()))
-        if normalized_body_length >= MIN_BODY_LENGTH_FOR_DEDUP:
-            duplicate_of = find_cross_source_original_id(conn, body_hash, source_id)
+        # ハッシュ対象と本文長ガードは同じ正規化本文を共有する (normalize.py と二重実装しない)
+        normalized_body = collapse_whitespace(body_plain)
+        body_hash = hash_normalized_body(normalized_body)
+        published_at = normalize_published(item.published_struct)
+        decision = CrossSourceDecision()
+        if len(normalized_body) >= MIN_BODY_LENGTH_FOR_DEDUP:
+            decision = resolve_cross_source_original(conn, body_hash, source_id, published_at)
         article = ArticleRow(
             source_id=source_id,
             guid=item.guid,
@@ -180,14 +189,17 @@ async def _process_source(
             body_hash=body_hash,
             body=body_plain,
             author=item.author,
-            published_at=normalize_published(item.published_struct),
+            published_at=published_at,
             tags=assign_tags(title_clean, body_plain, tagger, source_slug=source.slug),
-            duplicate_of=duplicate_of,
+            duplicate_of=decision.original_id,
         )
-        if insert_article(conn, article):
+        if insert_article(conn, article, regrouped_ids=decision.regrouped_ids):
             added += 1
-            if duplicate_of is not None:
+            if decision.original_id is not None:
                 duplicates_marked += 1
+            else:
+                # 挿入記事が新しい元記事になったケース: 付け替えた既存記事の件数を数える
+                duplicates_marked += len(decision.regrouped_ids)
 
     update_source_fetch_state(
         conn,

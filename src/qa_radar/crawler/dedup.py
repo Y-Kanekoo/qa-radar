@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 
 
 def is_known(conn: sqlite3.Connection, source_id: int, guid: str) -> bool:
@@ -19,35 +20,69 @@ def is_known(conn: sqlite3.Connection, source_id: int, guid: str) -> bool:
     return cur.fetchone() is not None
 
 
-def is_cross_source_duplicate(conn: sqlite3.Connection, body_hash: str, source_id: int) -> bool:
-    """別ソースに同一 body_hash の記事があるか (転載検出).
+@dataclass(frozen=True)
+class CrossSourceDecision:
+    """転載判定の結果.
 
-    現在は collected メタデータのみで使用予定. Phase 3 以降の RSS 出力で
-    重複を抑制する用途を想定.
+    Attributes:
+        original_id: 挿入する記事に設定する `duplicate_of`.
+            None なら挿入記事自身が元記事 (非重複) として保存される.
+        regrouped_ids: 挿入記事を新しい元記事として付け替える既存記事の id 群.
+            挿入記事が既存グループのどれよりも古い場合にのみ空でなくなる.
     """
-    cur = conn.execute(
-        "SELECT 1 FROM articles WHERE body_hash = ? AND source_id != ? LIMIT 1",
-        (body_hash, source_id),
-    )
-    return cur.fetchone() is not None
+
+    original_id: int | None = None
+    regrouped_ids: tuple[int, ...] = ()
 
 
-def find_cross_source_original_id(
-    conn: sqlite3.Connection, body_hash: str, source_id: int
-) -> int | None:
-    """別ソースにある同一本文の元記事 ID を返す.
+def resolve_cross_source_original(
+    conn: sqlite3.Connection,
+    body_hash: str,
+    source_id: int,
+    published_at: int,
+) -> CrossSourceDecision:
+    """別ソースにある同一本文グループと、挿入記事の関係を決定する.
 
-    元記事は、既に保存された非重複記事のうち公開日時が最も古いものとする。
-    公開日時が同じ場合は先に保存された記事を優先する。
+    元記事は「公開日時が最も古い記事」と定義する. クロール順は並列実行と
+    ネットワーク遅延に左右されるため、**転載を先に取り込んだ後に本家が来る**
+    ケースが普通に起きる. そのため既存グループだけを見るのではなく、いま挿入
+    しようとしている記事の published_at も比較に含める:
+
+    - 既存の元記事が挿入記事と同時刻かそれより古い → 挿入記事を重複としてマーク
+      (公開日時が同値なら先に保存された既存側を元記事として優先する)
+    - 挿入記事の方が古い → 挿入記事を元記事とし、既存グループ全体の
+      `duplicate_of` を挿入記事へ付け替える (`regrouped_ids`)
+    - 別ソースに元記事候補が無い → どちらの処理も行わない
+
+    Args:
+        conn: DB 接続.
+        body_hash: 挿入記事の正規化本文ハッシュ.
+        source_id: 挿入記事のソース id. 同一ソース内は guid 重複で守られるため除外する.
+        published_at: 挿入記事の公開日時 (UNIX 秒).
+
+    Returns:
+        CrossSourceDecision.
     """
-    row = conn.execute(
+    rows = conn.execute(
         """
-        SELECT id
+        SELECT id, published_at, duplicate_of
         FROM articles
-        WHERE body_hash = ? AND source_id != ? AND duplicate_of IS NULL
+        WHERE body_hash = ? AND source_id != ?
         ORDER BY published_at ASC, id ASC
-        LIMIT 1
         """,
         (body_hash, source_id),
-    ).fetchone()
-    return int(row["id"]) if row is not None else None
+    ).fetchall()
+    if not rows:
+        return CrossSourceDecision()
+
+    original = next((row for row in rows if row["duplicate_of"] is None), None)
+    if original is None:
+        # 別ソース側が全て重複マーク済み (元記事は挿入記事と同一ソース側にある) 状態.
+        # 付け替えの基準が無いため何もしない.
+        return CrossSourceDecision()
+
+    if int(original["published_at"]) <= published_at:
+        return CrossSourceDecision(original_id=int(original["id"]))
+
+    # 挿入記事が既存グループの最古より古い → グループ全体を挿入記事の配下に付け替える.
+    return CrossSourceDecision(regrouped_ids=tuple(int(row["id"]) for row in rows))

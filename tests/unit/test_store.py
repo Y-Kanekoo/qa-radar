@@ -129,6 +129,63 @@ def test_insert_article_stores_duplicate_of(tmp_path: Path) -> None:
         conn.close()
 
 
+def _row(source_id: int, guid: str, published_at: int = 1700000000) -> ArticleRow:
+    return ArticleRow(
+        source_id=source_id,
+        guid=guid,
+        url=f"https://e.com/{guid}",
+        title=guid,
+        snippet=guid,
+        body_hash="same",
+        body="body",
+        author=None,
+        published_at=published_at,
+    )
+
+
+def test_insert_article_regroups_existing_duplicates(tmp_path: Path) -> None:
+    """regrouped_ids を渡すと既存記事の duplicate_of が新記事へ付け替わる."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid1 = upsert_source(conn, _make_source("repost"))
+        sid2 = upsert_source(conn, _make_source("origin"))
+        insert_article(conn, _row(sid1, "repost", published_at=1700009999))
+        repost_id = int(conn.execute("SELECT id FROM articles").fetchone()["id"])
+
+        assert insert_article(conn, _row(sid2, "origin"), regrouped_ids=(repost_id,)) is True
+
+        rows = {
+            r["guid"]: r["duplicate_of"]
+            for r in conn.execute("SELECT guid, duplicate_of FROM articles").fetchall()
+        }
+        origin_id = int(
+            conn.execute("SELECT id FROM articles WHERE guid = 'origin'").fetchone()["id"]
+        )
+        assert rows["origin"] is None
+        assert rows["repost"] == origin_id
+    finally:
+        conn.close()
+
+
+def test_insert_article_regroup_is_rolled_back_on_conflict(tmp_path: Path) -> None:
+    """INSERT が UNIQUE 制約で失敗したら付け替えも残さない (同一トランザクション)."""
+    conn = init_db(tmp_path / "test.db")
+    try:
+        sid1 = upsert_source(conn, _make_source("repost"))
+        sid2 = upsert_source(conn, _make_source("origin"))
+        insert_article(conn, _row(sid1, "repost"))
+        repost_id = int(conn.execute("SELECT id FROM articles").fetchone()["id"])
+        insert_article(conn, _row(sid2, "origin"))
+
+        # 既存 guid と衝突する INSERT。regrouped_ids は適用されてはいけない。
+        assert insert_article(conn, _row(sid2, "origin"), regrouped_ids=(repost_id,)) is False
+
+        row = conn.execute("SELECT duplicate_of FROM articles WHERE guid = 'repost'").fetchone()
+        assert row["duplicate_of"] is None
+    finally:
+        conn.close()
+
+
 def test_fetch_state_lifecycle(tmp_path: Path) -> None:
     conn = init_db(tmp_path / "test.db")
     try:
