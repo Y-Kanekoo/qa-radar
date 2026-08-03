@@ -9,8 +9,51 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from qa_radar.publisher.pages import SourceSummary, TagSummary
+from qa_radar.publisher.pages import Digest, SourceSummary, TagSummary
 from qa_radar.publisher.rss import FeedItem
+
+
+def fetch_latest_digest(conn: sqlite3.Connection) -> Digest | None:
+    """最新の週刊ダイジェストを1件取得する."""
+    row = conn.execute(
+        """
+        SELECT id, created_at, period_start, period_end, content_md
+        FROM digests
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    return Digest(
+        id=int(row["id"]),
+        created_at=int(row["created_at"]),
+        period_start=int(row["period_start"]),
+        period_end=int(row["period_end"]),
+        content_md=str(row["content_md"]),
+    )
+
+
+def insert_digest(
+    conn: sqlite3.Connection,
+    *,
+    created_at: int,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+) -> int:
+    """週刊ダイジェストを保存し、採番された ID を返す."""
+    cursor = conn.execute(
+        """
+        INSERT INTO digests (created_at, period_start, period_end, content_md)
+        VALUES (?, ?, ?, ?)
+        """,
+        (created_at, period_start, period_end, content_md),
+    )
+    conn.commit()
+    if cursor.lastrowid is None:  # pragma: no cover
+        raise RuntimeError("digests INSERT後の lastrowid が None")
+    return int(cursor.lastrowid)
 
 
 def fetch_recent_articles(
