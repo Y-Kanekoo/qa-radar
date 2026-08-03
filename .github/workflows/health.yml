@@ -7,10 +7,11 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: "health"
+  # crawl.yml と同じ DB スナップショットを読み書きするため、相互に直列化する。
+  group: "crawl"
   cancel-in-progress: false
 
 jobs:
@@ -65,6 +66,24 @@ jobs:
         env:
           DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
         run: uv run python scripts/health_report.py
+
+      - name: Weekly LLM digest (生成 + Discord送信)
+        id: digest
+        if: hashFiles('data/articles.db') != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: uv run python scripts/weekly_digest.py
+
+      - name: Publish DB snapshot with digest
+        if: ${{ steps.digest.outcome == 'success' && steps.digest.outputs.generated == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run python scripts/publish_release.py \
+            --mode full \
+            --repo "${{ github.repository }}" \
+            --retention-days 7
 
       - name: Integration smoke test (実フィード疎通確認)
         # !cancelled(): GitHub Actions は明示 if を書いても success() が暗黙 AND
