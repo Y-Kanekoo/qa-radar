@@ -180,7 +180,7 @@ def _migrate_to_v5(conn: sqlite3.Connection) -> None:
     """v4 から v5 へ週刊 LLM ダイジェスト保存テーブルを追加する."""
     conn.execute(
         """
-        CREATE TABLE digests (
+        CREATE TABLE IF NOT EXISTS digests (
             id INTEGER PRIMARY KEY,
             created_at INTEGER NOT NULL,
             period_start INTEGER NOT NULL,

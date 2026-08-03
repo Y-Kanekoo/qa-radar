@@ -224,9 +224,8 @@ def list_recent_impl(
     """
     if not 1 <= days <= 365:
         raise ValueError("days は 1〜365 の範囲で指定してください")
-    # MCP の公開上限は100件だが、週刊ダイジェストの内部処理では最大120件を使う。
-    if not 1 <= limit <= 120:
-        raise ValueError("limit は 1〜120 の範囲で指定してください")
+    if not 1 <= limit <= 100:
+        raise ValueError("limit は 1〜100 の範囲で指定してください")
 
     since = int(datetime.now(tz=UTC).timestamp()) - days * 86400
     where: list[str] = ["a.duplicate_of IS NULL", "a.published_at >= ?"]
