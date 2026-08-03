@@ -5,7 +5,15 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from qa_radar.crawler.dedup import CrossSourceDecision, is_known, resolve_cross_source_original
+import pytest
+
+from qa_radar.crawler.dedup import (
+    CrossSourceDecision,
+    is_known,
+    is_normalized_body_eligible_for_dedup,
+    normalize_body_for_dedup,
+    resolve_cross_source_original,
+)
 from qa_radar.crawler.store import ArticleRow, insert_article, upsert_source
 from qa_radar.db import init_db
 from qa_radar.sources import FetchPolicy, SourceConfig
@@ -37,6 +45,26 @@ def _make_article(source_id: int, guid: str = "g1", body_hash: str = "h1") -> Ar
         author=None,
         published_at=1700000000,
     )
+
+
+def test_normalize_body_for_dedup_collapses_whitespace_only_body() -> None:
+    """200文字を超える空白だけの本文も、正規化後は空として扱う."""
+    normalized_body = normalize_body_for_dedup(" \n\t" * 100)
+
+    assert normalized_body == ""
+    assert is_normalized_body_eligible_for_dedup(normalized_body) is False
+
+
+@pytest.mark.parametrize(
+    ("length", "expected"),
+    [
+        (199, False),
+        (200, True),
+    ],
+)
+def test_is_normalized_body_eligible_for_dedup_boundary(length: int, expected: bool) -> None:
+    """正規化本文の200文字境界を直接検証する."""
+    assert is_normalized_body_eligible_for_dedup("あ" * length) is expected
 
 
 def test_is_known_false_for_new(tmp_path: Path) -> None:

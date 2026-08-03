@@ -11,10 +11,15 @@ from urllib.parse import urlparse
 
 import httpx
 
-from qa_radar.crawler.dedup import CrossSourceDecision, is_known, resolve_cross_source_original
+from qa_radar.crawler.dedup import (
+    CrossSourceDecision,
+    is_known,
+    is_normalized_body_eligible_for_dedup,
+    normalize_body_for_dedup,
+    resolve_cross_source_original,
+)
 from qa_radar.crawler.fetch import DEFAULT_TIMEOUT, RobotsCache, fetch_feed
 from qa_radar.crawler.normalize import (
-    collapse_whitespace,
     hash_normalized_body,
     make_snippet,
     normalize_published,
@@ -36,9 +41,6 @@ from qa_radar.tagger.engine import assign_tags
 from qa_radar.tagger.rules import TaggerConfig, load_tagger_config
 
 logger = logging.getLogger("qa_radar.crawler")
-
-# 極短本文は定型文同士のハッシュ衝突が起きやすいため転載判定から除外する。
-MIN_BODY_LENGTH_FOR_DEDUP = 200
 
 
 @dataclass
@@ -173,12 +175,12 @@ async def _process_source(
             continue
         body_plain = strip_html(item.body)
         title_clean = item.title.strip()
-        # ハッシュ対象と本文長ガードは同じ正規化本文を共有する (normalize.py と二重実装しない)
-        normalized_body = collapse_whitespace(body_plain)
+        # バックフィルも同じ正規化本文と本文長ガードを使うため dedup 層に集約する。
+        normalized_body = normalize_body_for_dedup(body_plain)
         body_hash = hash_normalized_body(normalized_body)
         published_at = normalize_published(item.published_struct)
         decision = CrossSourceDecision()
-        if len(normalized_body) >= MIN_BODY_LENGTH_FOR_DEDUP:
+        if is_normalized_body_eligible_for_dedup(normalized_body):
             decision = resolve_cross_source_original(conn, body_hash, source_id, published_at)
         article = ArticleRow(
             source_id=source_id,

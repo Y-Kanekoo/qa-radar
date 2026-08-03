@@ -9,6 +9,8 @@ import pytest
 
 import qa_radar.db as db_module
 from qa_radar.db import SCHEMA_VERSION, init_db
+from qa_radar.publisher.notification_state import fetch_unnotified
+from qa_radar.publisher.queries import fetch_recent_articles
 
 _V2_SCHEMA_SQL = """
 CREATE TABLE schema_version (
@@ -230,6 +232,67 @@ def _create_v3_db(path: Path) -> None:
         conn.close()
 
 
+def _create_v5_db(path: Path) -> None:
+    """duplicate_of と digests を持つ実スキーマ相当の v5 DB を作る."""
+    _create_v3_db(path)
+    conn = sqlite3.connect(path)
+    try:
+        db_module._migrate_to_v4(conn)
+        db_module._migrate_to_v5(conn)
+        conn.execute("UPDATE schema_version SET version = 5")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _insert_v5_article(
+    conn: sqlite3.Connection,
+    *,
+    article_id: int,
+    source_id: int,
+    body_hash: str,
+    body: str,
+    published_at: int,
+    duplicate_of: int | None = None,
+) -> None:
+    """v5 DB にバックフィル検証用の記事を直接追加する."""
+    conn.execute(
+        """
+        INSERT INTO articles
+            (id, guid, source_id, url, title, snippet, body_hash, body,
+             published_at, fetched_at, duplicate_of)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            article_id,
+            f"guid-{article_id}",
+            source_id,
+            f"https://example.com/{article_id}",
+            f"記事 {article_id}",
+            f"抜粋 {article_id}",
+            body_hash,
+            body,
+            published_at,
+            published_at,
+            duplicate_of,
+        ),
+    )
+
+
+def _insert_v5_sources(conn: sqlite3.Connection, count: int = 3) -> None:
+    """バックフィル検証用ソースを追加する."""
+    conn.executemany(
+        """
+        INSERT INTO sources (id, slug, name, feed_url, language, category)
+        VALUES (?, ?, ?, ?, 'ja', 'blog')
+        """,
+        [
+            (source_id, f"source-{source_id}", f"Source {source_id}", f"https://s{source_id}.com")
+            for source_id in range(2, count + 2)
+        ],
+    )
+
+
 def test_init_db_creates_all_tables(tmp_path: Path) -> None:
     """sources / articles / crawl_runs / schema_version がすべて生成される."""
     conn = init_db(tmp_path / "test.db")
@@ -345,6 +408,292 @@ def test_v3_db_migrates_to_latest_and_rebuilds_trigram_fts(tmp_path: Path) -> No
         assert test_hits == 1
         assert automation_hits == 1
         assert freelist_count == 0
+    finally:
+        conn.close()
+
+
+def test_v5_db_migrates_to_v6_and_backfills_duplicates(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """v5 の未マーク重複を遡及し、既存マークと対象外グループも整合させる."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn)
+
+        # 別ソースの未マーク重複。
+        _insert_v5_article(
+            raw_conn,
+            article_id=101,
+            source_id=1,
+            body_hash="cross-unmarked",
+            body="あ" * 200,
+            published_at=100,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=102,
+            source_id=2,
+            body_hash="cross-unmarked",
+            body="あ" * 200,
+            published_at=200,
+        )
+
+        # 正しいマーク済み記事と未マーク記事が混在する3ソースグループ。
+        _insert_v5_article(
+            raw_conn,
+            article_id=201,
+            source_id=1,
+            body_hash="marked-mixed",
+            body="い" * 200,
+            published_at=300,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=202,
+            source_id=2,
+            body_hash="marked-mixed",
+            body="い" * 200,
+            published_at=400,
+            duplicate_of=201,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=203,
+            source_id=3,
+            body_hash="marked-mixed",
+            body="い" * 200,
+            published_at=500,
+        )
+
+        # 正規化後199文字は別ソースでも対象外。
+        for article_id, source_id in ((301, 1), (302, 2)):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="short",
+                body="う" * 199,
+                published_at=article_id,
+            )
+
+        # 同一ソースだけのグループは、既存の誤マークも含めて対象外に戻す。
+        _insert_v5_article(
+            raw_conn,
+            article_id=401,
+            source_id=1,
+            body_hash="same-source",
+            body="え" * 200,
+            published_at=600,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=402,
+            source_id=1,
+            body_hash="same-source",
+            body="え" * 200,
+            published_at=601,
+            duplicate_of=401,
+        )
+
+        _insert_v5_article(
+            raw_conn,
+            article_id=501,
+            source_id=4,
+            body_hash="single",
+            body="お" * 200,
+            published_at=700,
+        )
+
+        # published_at が同値なら id が小さい記事を元にする3ソースグループ。
+        for article_id, source_id, published_at in (
+            (601, 1, 801),
+            (602, 2, 800),
+            (603, 3, 800),
+        ):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="three-sources",
+                body="か" * 200,
+                published_at=published_at,
+            )
+
+        # 元記事の選択が最古記事と食い違う既存マークは正しい参照へ補正する。
+        _insert_v5_article(
+            raw_conn,
+            article_id=701,
+            source_id=1,
+            body_hash="wrong-marker",
+            body="き" * 200,
+            published_at=900,
+            duplicate_of=702,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=702,
+            source_id=2,
+            body_hash="wrong-marker",
+            body="き" * 200,
+            published_at=901,
+        )
+        _insert_v5_article(
+            raw_conn,
+            article_id=703,
+            source_id=3,
+            body_hash="wrong-marker",
+            body="き" * 200,
+            published_at=902,
+            duplicate_of=702,
+        )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    with caplog.at_level("INFO", logger="qa_radar.db"):
+        conn = init_db(db_path)
+    try:
+        version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        actual = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles ORDER BY id").fetchall()
+        }
+        expected = {
+            101: None,
+            102: 101,
+            201: None,
+            202: 201,
+            203: 201,
+            301: None,
+            302: None,
+            401: None,
+            402: None,
+            501: None,
+            601: 602,
+            602: None,
+            603: 602,
+            701: None,
+            702: 701,
+            703: 701,
+        }
+
+        assert version == 6
+        assert actual == expected
+        assert "schema v6: 5 件をマーク / 1 件補正 / 2 件解除" in caplog.messages
+
+        # データ移行関数自体を再実行しても期待状態を変えない。
+        db_module._migrate_to_v6(conn)
+        after_second_run = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles").fetchall()
+        }
+        assert after_second_run == expected
+    finally:
+        conn.close()
+
+
+def test_v6_backfill_does_not_mark_articles_from_original_source(tmp_path: Path) -> None:
+    """同一ソースの記事を巻き込まず、挿入時と同じクロスソース判定にする."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn, count=1)
+        for article_id, source_id, published_at in (
+            (801, 1, 100),
+            (802, 1, 150),
+            (803, 2, 200),
+        ):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="same-and-cross-source",
+                body="く" * 200,
+                published_at=published_at,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        actual = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles ORDER BY id").fetchall()
+        }
+        assert actual == {801: None, 802: None, 803: 801}
+    finally:
+        conn.close()
+
+
+def test_v6_backfill_marks_only_eligible_rows_in_mixed_length_group(tmp_path: Path) -> None:
+    """同じハッシュの混在グループでも200文字ガードを満たす行だけをマークする."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn, count=2)
+        for article_id, source_id, body, published_at in (
+            (811, 1, "け" * 200, 100),
+            (812, 2, "こ" * 199, 150),
+            (813, 3, "さ" * 200, 200),
+        ):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="mixed-body-length",
+                body=body,
+                published_at=published_at,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        actual = {
+            int(row["id"]): (int(row["duplicate_of"]) if row["duplicate_of"] is not None else None)
+            for row in conn.execute("SELECT id, duplicate_of FROM articles ORDER BY id").fetchall()
+        }
+        assert actual == {811: None, 812: None, 813: 811}
+    finally:
+        conn.close()
+
+
+def test_v6_backfill_is_reflected_in_output_filters(tmp_path: Path) -> None:
+    """v6 で遡及マークした記事を未通知取得と一覧クエリから除外する."""
+    db_path = tmp_path / "test.db"
+    _create_v5_db(db_path)
+    raw_conn = sqlite3.connect(db_path)
+    try:
+        raw_conn.execute("DELETE FROM articles")
+        _insert_v5_sources(raw_conn, count=1)
+        for article_id, source_id, published_at in ((801, 1, 100), (802, 2, 200)):
+            _insert_v5_article(
+                raw_conn,
+                article_id=article_id,
+                source_id=source_id,
+                body_hash="output-filter",
+                body="く" * 200,
+                published_at=published_at,
+            )
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
+
+    conn = init_db(db_path)
+    try:
+        assert [article.article_id for article in fetch_unnotified(conn)] == [801]
+        assert [article.url for article in fetch_recent_articles(conn)] == [
+            "https://example.com/801"
+        ]
     finally:
         conn.close()
 
@@ -483,15 +832,15 @@ def test_apply_migrations_skips_versions_already_applied_by_another_process(
         conn.close()
 
 
-def test_migrations_are_applied_sequentially_through_dummy_v6(
+def test_migrations_are_applied_sequentially_through_dummy_v7(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """v2→v3→v4→v5 の後に一時登録した v6 が順番に適用される."""
+    """v2→v3→v4→v5→v6 の後に一時登録した v7 が順番に適用される."""
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     applied: list[int] = []
 
-    def migrate_to_v6(conn: sqlite3.Connection) -> None:
+    def migrate_to_v7(conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         assert "duplicate_of" in columns
         fts_sql = conn.execute(
@@ -499,18 +848,18 @@ def test_migrations_are_applied_sequentially_through_dummy_v6(
         ).fetchone()["sql"]
         assert "tokenize='trigram'" in fts_sql
         conn.execute("ALTER TABLE articles ADD COLUMN migration_probe INTEGER")
-        applied.append(6)
+        applied.append(7)
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 6)
-    monkeypatch.setitem(db_module.MIGRATIONS, 6, migrate_to_v6)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 7)
+    monkeypatch.setitem(db_module.MIGRATIONS, 7, migrate_to_v7)
 
     conn = init_db(db_path)
     try:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert applied == [6]
+        assert applied == [7]
         assert "migration_probe" in columns
-        assert version == 6
+        assert version == 7
     finally:
         conn.close()
 
@@ -527,8 +876,8 @@ def test_failed_migration_rolls_back_schema_and_version(
         conn.execute("ALTER TABLE articles ADD COLUMN unfinished INTEGER")
         raise RuntimeError("意図した失敗")
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 6)
-    monkeypatch.setitem(db_module.MIGRATIONS, 6, failing_migration)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 7)
+    monkeypatch.setitem(db_module.MIGRATIONS, 7, failing_migration)
 
     with pytest.raises(RuntimeError, match="意図した失敗"):
         init_db(db_path)
@@ -548,11 +897,11 @@ def test_newer_database_version_is_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     raw_conn = sqlite3.connect(db_path)
-    raw_conn.execute("UPDATE schema_version SET version = 6")
+    raw_conn.execute("UPDATE schema_version SET version = 7")
     raw_conn.commit()
     raw_conn.close()
 
-    with pytest.raises(RuntimeError, match=r"DB=6 > コード=5"):
+    with pytest.raises(RuntimeError, match=r"DB=7 > コード=6"):
         init_db(db_path)
 
 

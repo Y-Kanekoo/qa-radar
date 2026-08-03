@@ -5,6 +5,21 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from qa_radar.crawler.normalize import collapse_whitespace
+
+# 極短本文は定型文同士のハッシュ衝突が起きやすいため転載判定から除外する。
+MIN_BODY_LENGTH_FOR_DEDUP = 200
+
+
+def normalize_body_for_dedup(body: str | None) -> str:
+    """HTML 除去済み本文をハッシュと文字数ガード用に正規化する."""
+    return collapse_whitespace(body or "")
+
+
+def is_normalized_body_eligible_for_dedup(normalized_body: str) -> bool:
+    """正規化本文が転載判定の最低文字数を満たすか返す."""
+    return len(normalized_body) >= MIN_BODY_LENGTH_FOR_DEDUP
+
 
 def is_known(conn: sqlite3.Connection, source_id: int, guid: str) -> bool:
     """同一 (source_id, guid) が既にDBに存在するか.

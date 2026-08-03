@@ -28,7 +28,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 >   RSS / Pages / Discord / MCP 一覧・集計から除外(検索のみ全コーパス対象を維持)
 > - DB マイグレーションが ALTER 非対応 (P3) — `MIGRATIONS` による逐次適用基盤を実装し、
 >   schema v3 (`articles.duplicate_of`) を ALTER TABLE で追加
-> - 制限: 既存 DB のバックフィルは行わないため、v3 化前から存在する転載重複は除外されない
+> - ~~制限: 既存 DB のバックフィルは行わないため、v3 化前から存在する転載重複は除外されない~~ (2026-08-03、schema v6 のバックフィルで解消)
 
 ## TL;DR
 
@@ -56,7 +56,7 @@ Phase 0〜9 完了時点の全体調査。コードベース・設定・GitHub �
 | コンポーネント | 実装 | 品質所見 |
 |---|---|---|
 | クローラー (`crawler/`) | ✅ | httpx + ETag/If-Modified-Since、robots.txt 遵守、エラー集約設計。リトライなし(PR #18 で解消) |
-| DB (`db.py`) | ✅ | SQLite WAL + FTS5(外部 content)、schema v4、前方マイグレーション |
+| DB (`db.py`) | ✅ | SQLite WAL + FTS5(外部 content)、schema v6、前方マイグレーション |
 | タガー (`tagger/`) | ✅ | 10 固定タグ、キーワードスコア + source_tags + 共起の 3 層 |
 | RSS/Pages (`publisher/`) | ✅ | body 非露出を全レイヤーで徹底(47条の5 境界) |
 | Discord 通知 | ✅ | embed、429 リトライ。ただし部分失敗時の既送信マークにバグ(後述) |
@@ -147,7 +147,7 @@ Releases に data-* が残り続け、`uvx qa-radar` が動くこと。
 ### Phase 12 — 機能強化
 
 - ~~**クロスソース重複検出の配線**(RSS / Pages / Discord 出力前に body_hash で抑制)~~
-  (PR #19 で解消。残タスク: v3 化前から DB にある転載重複のバックフィル)
+  (PR #19 で解消。既存 DB の転載重複バックフィルも schema v6 で解消)
 - ~~**日本語検索の改善**: FTS5 `trigram` トークナイザの併用検討~~ (2026-08-03 解消: trigram に一本化し、3文字未満の語を含むクエリは LIKE へフォールバック。実測で「テスト」12/196→196/196、「自動化」2/62→62/62)
 - ~~2文字 ASCII 略語(DB/CI等)の単体クエリは LIKE 部分一致のため語境界を見ずノイズが多い~~
   (2026-08-03 解消: 純 ASCII 短語に語境界判定を追加。実測: DB 0/20→20/20)

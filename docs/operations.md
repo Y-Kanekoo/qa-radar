@@ -215,7 +215,7 @@ uv run python scripts/publish_release.py \
 ## DB スキーマのマイグレーション
 
 `init_db()` は DB の `schema_version` を読み、コード側の `SCHEMA_VERSION` まで
-マイグレーションを逐次適用する (現行 v3: `articles.duplicate_of`)。運用上の注意:
+マイグレーションを逐次適用する (現行 v6: 既存の転載重複をバックフィル)。運用上の注意:
 
 - **一度上げたバージョンは戻せない**。v3 化した DB を旧コード (`SCHEMA_VERSION = 2`)
   で開くと前方保護の `RuntimeError`(`スキーマバージョン不一致: DB=3 > コード=2`)で
@@ -224,9 +224,8 @@ uv run python scripts/publish_release.py \
 - `schema_version` テーブルはあるのに行が無い DB は、空の新規 DB と区別できないため
   `RuntimeError` で停止する (壊れた状態のまま最新バージョンを刻むと自己修復できなくなる)。
   この場合も上記「DB 復旧」の手順でスナップショットから復元する
-- 転載重複 (`duplicate_of`) のマークは **v3 化以降に新規取得した記事のみ**が対象。
-  移行前から DB にある転載記事は NULL のままで、RSS / Pages / Discord / MCP 一覧に
-  出続ける (guid 重複で再 INSERT されないため自然解消しない)
+- v6 移行時に既存記事にもクロスソース転載判定を適用し、`duplicate_of` をバックフィルする
+- **注意**: 重複マーク解除が起きた場合は古い記事が通知対象に復帰し得る
 
 ## 手動実行
 

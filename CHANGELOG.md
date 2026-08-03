@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- schema **v6**: v3 化前から DB に存在するクロスソース転載重複をバックフィル。
+  クロール時と同じ本文正規化・200文字ガードを使い、同一ソース内だけの重複は除外する。
+  既存マークも `published_at ASC, id ASC` の最古記事を元に補正し、過去の転載を
+  Discord 通知・RSS・Pages・一覧クエリから遡及的に除外
 - **Phase D1**: 公開済みメタデータだけを Claude Haiku に渡す週刊 LLM ダイジェストを追加。
   schema v5 の `digests` テーブルへ保存し、Discord 配信と Pages の `digest.html` で公開する。
   `health.yml` は `crawl.yml` と同じ concurrency group で DB 更新を直列化し、生成成功時の
