@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - schema **v4**: FTS5 を `porter unicode61` から `trigram` へ再構築するマイグレーションを追加。
-  既存記事を `rebuild` で全件再インデックスし、新規 DB も最初から trigram を使用
+  既存記事を `rebuild` で全件再インデックスし、新規 DB も最初から trigram を使用。
+  移行後は DB を `VACUUM` し、他プロセスのロックで失敗した場合は警告だけで起動を継続
 - **Phase C-3**: クロスソース転載重複の配線と DB マイグレーション基盤
   - `src/qa_radar/db.py`: バージョン別マイグレーション関数を逐次適用する基盤を追加
     (`MIGRATIONS` dict + `_apply_migrations()`)。列追加のような ALTER を伴う変更に対応。
@@ -80,9 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   3文字以上なら FTS5、長語・短語の混在時は長語を FTS5 で絞り込み短語を LIKE の AND
   条件として追加し、いずれも BM25 順で返す。全語が3文字未満の場合のみ、全語を LIKE
   で検索して公開日時順で返す
+- 検索クエリの50語上限を3文字未満の短語だけに適用。短語が上限を超えた場合は
+  `ValueError` (`短い語(3文字未満)が多すぎます(上限50語)`) を返す
 
 ### Fixed
 
+- `search_articles` と `list_recent` の tags フィルタで LIKE ワイルドカード (`%` / `_`) と
+  エスケープ文字 (`\`) をリテラルとして扱うよう修正
 - `scripts/publish_release.py`: release 保持判定を `publishedAt` 基準に一本化
   (`createdAt` フォールバックを削除、`publishedAt` が null の release はスキップ)。
   TypedDict 化して型を明確化

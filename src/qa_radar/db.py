@@ -16,9 +16,12 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger("qa_radar.db")
 
 SCHEMA_VERSION = 4  # v4: FTS5 を trigram トークナイザで再構築
 
@@ -267,9 +270,12 @@ def init_db(path: Path) -> sqlite3.Connection:
         else:
             migrations_applied = _apply_migrations(conn, current_version)
             if migrations_applied:
-                # DROP した旧 FTS の free page を配布スナップショットに残さない。
-                # VACUUM はトランザクション内では実行できないため、全適用後に1回だけ行う。
-                conn.execute("VACUUM")
+                # VACUUM はトランザクション内では実行できないため、全マイグレーション
+                # 適用後に、v5 以降の軽微な移行を含め無条件で1回だけ実行する。
+                try:
+                    conn.execute("VACUUM")
+                except sqlite3.Error:
+                    logger.warning("VACUUM をスキップしました(他プロセスが DB 使用中)")
     except Exception:
         conn.close()
         raise

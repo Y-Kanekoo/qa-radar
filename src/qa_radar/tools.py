@@ -26,7 +26,7 @@ from typing import Any
 BM25_WEIGHT_TITLE = 5.0
 BM25_WEIGHT_BODY = 1.0
 BM25_WEIGHT_TAGS = 2.0
-MAX_SEARCH_TERMS = 50
+MAX_SHORT_SEARCH_TERMS = 50
 
 
 def _fts5_safe_query(query: str) -> str:
@@ -101,11 +101,10 @@ def search_articles_impl(
 
     # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
     terms = query.split()
-    if len(terms) > MAX_SEARCH_TERMS:
-        raise ValueError(f"検索クエリの語数が多すぎます(上限{MAX_SEARCH_TERMS}語)")
-
     long_terms = [term for term in terms if len(term) >= 3]
     short_terms = [term for term in terms if len(term) < 3]
+    if len(short_terms) > MAX_SHORT_SEARCH_TERMS:
+        raise ValueError(f"短い語(3文字未満)が多すぎます(上限{MAX_SHORT_SEARCH_TERMS}語)")
     where: list[str] = []
     params: list[Any] = []
 

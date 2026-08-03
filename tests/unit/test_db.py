@@ -375,6 +375,38 @@ def test_vacuum_runs_once_only_when_migration_is_applied(
     assert not any(sql.strip().upper() == "VACUUM" for sql in statements)
 
 
+def test_init_db_continues_when_vacuum_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """移行直後に別接続が書き込み中でも VACUUM 失敗だけを隔離する."""
+    db_path = tmp_path / "test.db"
+    _create_v3_db(db_path)
+    lock_conn = sqlite3.connect(db_path)
+    real_apply_migrations = db_module._apply_migrations
+
+    def apply_migrations_and_lock(conn: sqlite3.Connection, current_version: int) -> bool:
+        applied = real_apply_migrations(conn, current_version)
+        conn.execute("PRAGMA busy_timeout = 0")
+        lock_conn.execute("BEGIN IMMEDIATE")
+        return applied
+
+    monkeypatch.setattr(db_module, "_apply_migrations", apply_migrations_and_lock)
+
+    try:
+        with caplog.at_level("WARNING", logger="qa_radar.db"):
+            conn = init_db(db_path)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+            assert version == SCHEMA_VERSION
+        finally:
+            conn.close()
+    finally:
+        lock_conn.rollback()
+        lock_conn.close()
+
+    assert "VACUUM をスキップしました(他プロセスが DB 使用中)" in caplog.messages
+
+
 def test_v1_db_migrates_through_v2_v3_and_v4(tmp_path: Path) -> None:
     """v1 の実 DB が v2→v3→v4 と逐次適用され、既存データと FTS が保たれる."""
     db_path = tmp_path / "test.db"

@@ -465,8 +465,8 @@ def test_search_rejects_negative_offset(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_search_accepts_fifty_terms(tmp_path: Path) -> None:
-    """語数上限ちょうどの50語は検索できる."""
+def test_search_accepts_fifty_short_terms(tmp_path: Path) -> None:
+    """短語数上限ちょうどの50語は検索できる."""
     conn = _setup_db(tmp_path)
     try:
         result = search_articles_impl(conn, " ".join(["AI"] * 50))
@@ -476,11 +476,22 @@ def test_search_accepts_fifty_terms(tmp_path: Path) -> None:
         conn.close()
 
 
-def test_search_rejects_more_than_fifty_terms(tmp_path: Path) -> None:
-    """51語以上は SQLite に渡す前に日本語の ValueError で拒否する."""
+def test_search_accepts_more_than_fifty_long_terms(tmp_path: Path) -> None:
+    """長語だけなら51語以上でも FTS5 の単一 MATCH パラメータで検索できる."""
     conn = _setup_db(tmp_path)
     try:
-        with pytest.raises(ValueError, match=r"^検索クエリの語数が多すぎます\(上限50語\)$"):
+        result = search_articles_impl(conn, " ".join(["playwright"] * 51))
+
+        assert result == {"items": [], "has_more": False, "next_offset": None}
+    finally:
+        conn.close()
+
+
+def test_search_rejects_more_than_fifty_short_terms(tmp_path: Path) -> None:
+    """短語51語以上は SQLite に渡す前に日本語の ValueError で拒否する."""
+    conn = _setup_db(tmp_path)
+    try:
+        with pytest.raises(ValueError, match=r"^短い語\(3文字未満\)が多すぎます\(上限50語\)$"):
             search_articles_impl(conn, " ".join(["AI"] * 51))
     finally:
         conn.close()
