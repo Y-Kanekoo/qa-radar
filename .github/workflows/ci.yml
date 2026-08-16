@@ -22,7 +22,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: jq の存在確認
         # tests/unit/test_notify_alert.py の requires_jq マーカーは jq 未検出時に
