@@ -59,15 +59,20 @@ def _run(conn: sqlite3.Connection, profiles: dict, webhook: str, *, limit: int, 
     if dry:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
-    success, status = send_payload(webhook, payload)
-    record_delivery(conn, candidates, status=status, success=success)
-    logger.info("新技術通知 status=%s 件数=%d", status, len(candidates))
-    return 0 if success else 2
+    outcome = send_payload(webhook, payload)
+    record_delivery(conn, candidates, outcome=outcome)
+    logger.info(
+        "新技術通知 state=%s status=%s 件数=%d", outcome.state, outcome.status, len(candidates)
+    )
+    return 0 if outcome.state == "confirmed" else 2
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    # HTTPX's INFO request line includes the full webhook URL (and its token).
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     if not args.db_path.is_file():
         logger.error("DB が存在しません")
         return 1

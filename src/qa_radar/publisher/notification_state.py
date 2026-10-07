@@ -30,6 +30,7 @@ def fetch_unnotified(
     limit: int = 100,
     since_unix: int | None = None,
     exclude_source_slugs: frozenset[str] = frozenset(),
+    exclude_notified_channels: frozenset[str] = frozenset(),
 ) -> list[UnnotifiedArticle]:
     """指定 channel に未通知の記事を取得する.
 
@@ -45,7 +46,9 @@ def fetch_unnotified(
         UnnotifiedArticle のリスト. published_at DESC 順.
     """
     where_extra = ""
-    params: list[object] = [channel]
+    all_channels = (channel, *sorted(exclude_notified_channels - {channel}))
+    channel_placeholders = ", ".join("?" for _ in all_channels)
+    params: list[object] = list(all_channels)
     if since_unix is not None:
         where_extra = "AND a.fetched_at >= ?"
         params.append(since_unix)
@@ -61,7 +64,7 @@ def fetch_unnotified(
         JOIN sources s ON a.source_id = s.id
         WHERE NOT EXISTS (
             SELECT 1 FROM article_notifications n
-            WHERE n.article_id = a.id AND n.channel = ?
+            WHERE n.article_id = a.id AND n.channel IN ({channel_placeholders})
         )
         AND a.duplicate_of IS NULL
         {where_extra}

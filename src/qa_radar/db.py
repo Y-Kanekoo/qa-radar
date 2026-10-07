@@ -30,7 +30,7 @@ from qa_radar.tools import _word_boundary_match
 
 logger = logging.getLogger("qa_radar.db")
 
-SCHEMA_VERSION = 7  # v7: 新技術通知の失敗・再送台帳
+SCHEMA_VERSION = 8  # v8: 新技術通知の送達IDとpending期限
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -128,7 +128,10 @@ CREATE TABLE IF NOT EXISTS technology_delivery_attempts (
     article_id INTEGER PRIMARY KEY REFERENCES articles(id),
     attempts INTEGER NOT NULL DEFAULT 0,
     last_attempted_at INTEGER NOT NULL,
-    last_status TEXT NOT NULL
+    last_status TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_message_id TEXT,
+    excluded_reason TEXT
 );
 
 -- v5 (Phase D1): 週刊 LLM ダイジェスト. 公開済みメタデータから生成した Markdown のみ保存する.
@@ -280,6 +283,26 @@ def _migrate_to_v7(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_to_v8(conn: sqlite3.Connection) -> None:
+    """既存の通知試行へ送達ID・pending期限・明示除外理由を追加する."""
+    conn.execute(
+        "ALTER TABLE technology_delivery_attempts ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0"
+    )
+    conn.execute("ALTER TABLE technology_delivery_attempts ADD COLUMN last_message_id TEXT")
+    conn.execute("ALTER TABLE technology_delivery_attempts ADD COLUMN excluded_reason TEXT")
+    conn.execute(
+        """
+        UPDATE technology_delivery_attempts
+        SET expires_at = (
+            SELECT fetched_at FROM articles
+            WHERE articles.id = technology_delivery_attempts.article_id
+        ) + ?
+        WHERE expires_at = 0
+        """,
+        (30 * 24 * 3600,),
+    )
+
+
 # キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
 # 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
@@ -289,6 +312,7 @@ MIGRATIONS: dict[int, Migration] = {
     5: _migrate_to_v5,
     6: _migrate_to_v6,
     7: _migrate_to_v7,
+    8: _migrate_to_v8,
 }
 
 

@@ -33,22 +33,31 @@ promptfoo、DeepEval、Giskard、Langfuseの既存フィードも利用する。
 - すべて「公式告知・動作未検証」と表示する。実際に試した証拠がない限り
   「検証済み」にはしない。実検証は別の記録が必要。
 - 1日最大5件を1リクエストに集約し、残りは次回へ繰り越す。最初の有効化時は
-  直近7日以内に取得した記事だけを対象とする。送信に失敗した記事は7日を過ぎても
-  再試行する。
+  直近7日以内に取得した記事だけを候補化する。件数制限で先送りした候補も
+  `pending` としてDBに保存し、7日を過ぎても対象に残す。取得から30日で
+  未送信候補を `expired` / `pending_ttl_30d` として明示除外する。
 
 ## 台帳と障害
 
 既送信は `article_notifications` の別channel
 `discord-technology-watch` で管理する。`technology_delivery_attempts` は記事IDごとの
-試行回数・時刻・`http_...`または`network`だけを記録する。1ダイジェストのHTTP
-成功後に全件を一括で既送信にし、HTTP失敗時はどれも既送信にしない。
+pending・試行回数・時刻・固定status・期限・Discord message ID・除外理由を記録する。
+WebhookにはDiscord公式APIの `wait=true` を指定し、作成済みmessage IDを持つ
+応答だけを送達確定として全件一括で既送信にする。2xxでもIDがない応答やtimeout、
+5xxは送達不明として `manual_reconciliation` で保留し、自動再送しない。
+429・明確な4xx・接続確立失敗は30日の期限内で再試行する。
 429は`Retry-After`を最大5秒待って1回だけ再試行する。失敗してもDB snapshot公開は
 続け、既存アラートjobで失敗を見えるようにする。Webhook URL・レスポンス本文・
-例外本文はログに出さない。
+例外本文はログに出さず、HTTPXの通信INFOログも抑制する。Discordの
+[Webhook実行仕様](https://docs.discord.com/developers/resources/webhook#execute-webhook)に
+よると、既定 `wait=false` は保存されなくてもエラーを返さない場合がある。
 
-Discord受領直後のtimeoutや、送信成功後のDB保存・Release公開失敗では、次回に
-同じダイジェストを送る可能性がある。WebhookとSQLiteを単一トランザクションには
-できないため、厳密なexactly-once配信は保証しない。
+送達不明は台帳を確認し、Discord側の実在とmessage IDを人が照合してから
+再送または既送信登録を判断する。送信成功後のDB保存・Release公開失敗では、
+次回に同じダイジェストを送る可能性が残る。WebhookとSQLiteを単一
+トランザクションにはできないため、厳密なexactly-once配信は保証しない。
+専用Webhookの設定を外しても、専用チャネルで送達済みの記事は通常記事Webhookへ
+再送しない。
 
 ## オフライン試用
 

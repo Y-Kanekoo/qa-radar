@@ -6,12 +6,14 @@ itself remains the primary source; claims from it are labelled as announcements.
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import httpx
 import yaml
@@ -22,6 +24,7 @@ WATCH_CHANNEL = "discord-technology-watch"
 DEFAULT_PROFILES_PATH = Path(__file__).resolve().parents[3] / "config" / "technology_watch.yaml"
 MAX_DIGEST_ITEMS = 5
 LOOKBACK_SECONDS = 7 * 24 * 3600
+PENDING_TTL_SECONDS = 30 * 24 * 3600
 
 _NEW = re.compile(r"\b(initial release|first (public )?release|public launch)\b", re.I)
 _PRERELEASE = re.compile(r"\b(alpha|beta|rc|canary|nightly|preview|dev)\b|\d+a\d+\.dev\d+", re.I)
@@ -67,7 +70,7 @@ class Candidate:
     published_at: int
     kind: str
     priority: int
-    retried: bool
+    queued: bool
 
 
 def load_profiles(path: Path = DEFAULT_PROFILES_PATH) -> dict[str, Profile]:
@@ -121,37 +124,53 @@ def select_candidates(
     now: int | None = None,
     limit: int = MAX_DIGEST_ITEMS,
 ) -> tuple[list[Candidate], int]:
-    """Select unannounced official releases, retaining failed items past lookback.
+    """Queue all eligible releases before applying the daily digest limit.
 
     The ordinary Discord channel is checked too, so enabling the new destination
-    does not replay a release that already reached the old one.
+    does not replay a release that already reached the old one. Pending items
+    persist beyond the seven-day discovery window, then expire visibly at 30 days.
     """
     if limit < 1 or limit > MAX_DIGEST_ITEMS:
         raise ValueError(f"limit must be 1..{MAX_DIGEST_ITEMS}")
     if not profiles:
         return ([], 0)
     current = int(time.time()) if now is None else now
+    with conn:
+        conn.execute(
+            """
+            UPDATE technology_delivery_attempts
+            SET last_status = 'expired', excluded_reason = 'pending_ttl_30d'
+            WHERE expires_at <= ? AND excluded_reason IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM article_notifications n
+                WHERE n.article_id = technology_delivery_attempts.article_id
+                  AND n.channel = ?
+              )
+            """,
+            (current, WATCH_CHANNEL),
+        )
     placeholders = ", ".join("?" for _ in profiles)
     rows = conn.execute(
         f"""
         SELECT a.id, a.url, a.title, a.snippet, a.published_at, s.slug,
-               COALESCE(t.attempts, 0) AS attempts, s.feed_url
+               a.fetched_at, t.article_id AS pending_id, s.feed_url
         FROM articles a
         JOIN sources s ON s.id = a.source_id
         LEFT JOIN technology_delivery_attempts t ON t.article_id = a.id
         WHERE s.slug IN ({placeholders}) AND a.duplicate_of IS NULL
-          AND (a.fetched_at >= ? OR t.attempts > 0)
+          AND (a.fetched_at >= ? OR (t.article_id IS NOT NULL AND t.expires_at > ?))
+          AND (t.article_id IS NULL OR (t.excluded_reason IS NULL AND t.expires_at > ?))
           AND NOT EXISTS (
               SELECT 1 FROM article_notifications n
               WHERE n.article_id = a.id
                 AND n.channel IN (?, 'discord')
           )
-        ORDER BY (t.attempts > 0) DESC, a.published_at DESC, a.id DESC
-        LIMIT 500
+        ORDER BY (t.article_id IS NOT NULL) DESC, a.published_at DESC, a.id DESC
         """,
-        (*profiles, current - LOOKBACK_SECONDS, WATCH_CHANNEL),
+        (*profiles, current - LOOKBACK_SECONDS, current, current, WATCH_CHANNEL),
     ).fetchall()
     by_url: dict[str, Candidate] = {}
+    pending_to_insert: list[tuple[int, int]] = []
     for row in rows:
         slug = str(row["slug"])
         url = normalize_url(str(row["url"]))
@@ -163,6 +182,7 @@ def select_candidates(
         classification = classify_release(title, snippet)
         if classification is None:
             continue
+        pending_to_insert.append((int(row["id"]), int(row["fetched_at"]) + PENDING_TTL_SECONDS))
         key = url.lower()
         existing = by_url.get(key)
         if existing is not None:
@@ -175,7 +195,7 @@ def select_candidates(
                 published_at=existing.published_at,
                 kind=existing.kind,
                 priority=existing.priority,
-                retried=existing.retried or bool(row["attempts"]),
+                queued=existing.queued or row["pending_id"] is not None,
             )
             continue
         kind, priority = classification
@@ -188,11 +208,20 @@ def select_candidates(
             published_at=int(row["published_at"]),
             kind=kind,
             priority=priority,
-            retried=bool(row["attempts"]),
+            queued=row["pending_id"] is not None,
+        )
+    with conn:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO technology_delivery_attempts
+                (article_id, attempts, last_attempted_at, last_status, expires_at)
+            VALUES (?, 0, 0, 'pending', ?)
+            """,
+            pending_to_insert,
         )
     selected = sorted(
         by_url.values(),
-        key=lambda item: (item.retried, item.priority, item.published_at),
+        key=lambda item: (item.queued, item.priority, item.published_at),
         reverse=True,
     )
     return selected[:limit], max(0, len(selected) - limit)
@@ -233,32 +262,90 @@ def build_payload(candidates: list[Candidate], deferred: int = 0) -> dict[str, o
     }
 
 
+@dataclass(frozen=True)
+class DeliveryResult:
+    state: str  # confirmed | retryable | uncertain
+    status: str
+    message_id: str | None = None
+
+
+@contextmanager
+def _quiet_transport_logs():
+    """HTTPX INFO records include the full webhook URL, so suppress them."""
+    loggers = [logging.getLogger(name) for name in ("httpx", "httpcore")]
+    previous = [logger.level for logger in loggers]
+    try:
+        for logger in loggers:
+            if logger.getEffectiveLevel() < logging.WARNING:
+                logger.setLevel(logging.WARNING)
+        yield
+    finally:
+        for logger, level in zip(loggers, previous, strict=True):
+            logger.setLevel(level)
+
+
+def _confirmed_url(webhook_url: str) -> str:
+    parts = urlsplit(webhook_url)
+    if parts.scheme != "https" or not parts.netloc:
+        raise ValueError("invalid webhook URL")
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != "wait"
+    ]
+    query.append(("wait", "true"))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
 def send_payload(
     webhook_url: str,
     payload: dict[str, object],
     *,
     client: httpx.Client | None = None,
-) -> tuple[bool, str]:
-    """Send once, with one bounded retry for Discord 429. Never log the URL."""
+) -> DeliveryResult:
+    """Confirm persistence with wait=true and a Discord message ID.
+
+    Uncertain outcomes are held for manual reconciliation rather than retried
+    automatically, because a timeout or malformed success may already be saved.
+    """
+    try:
+        endpoint = _confirmed_url(webhook_url)
+    except ValueError:
+        return DeliveryResult("retryable", "invalid_webhook_url")
     owned = client is None
     used = client if client is not None else httpx.Client(timeout=10, follow_redirects=False)
     try:
-        for attempt in range(2):
-            try:
-                response = used.post(webhook_url, json=payload)
-            except httpx.HTTPError:
-                return False, "network"
-            if 200 <= response.status_code < 300:
-                return True, f"http_{response.status_code}"
-            if response.status_code == 429 and attempt == 0:
+        with _quiet_transport_logs():
+            for attempt in range(2):
                 try:
-                    delay = float(response.headers.get("Retry-After", "1"))
-                except ValueError:
-                    delay = 1.0
-                time.sleep(min(5.0, max(0.5, delay)))
-                continue
-            return False, f"http_{response.status_code}"
-        return False, "http_429"
+                    response = used.post(endpoint, json=payload)
+                except httpx.ConnectError:
+                    return DeliveryResult("retryable", "connect_error")
+                except httpx.InvalidURL:
+                    return DeliveryResult("retryable", "invalid_webhook_url")
+                except httpx.HTTPError:
+                    return DeliveryResult("uncertain", "network_uncertain")
+                status = response.status_code
+                if 200 <= status < 300:
+                    try:
+                        body = response.json()
+                    except ValueError:
+                        body = None
+                    message_id = body.get("id") if isinstance(body, dict) else None
+                    if isinstance(message_id, str) and message_id.isdecimal():
+                        return DeliveryResult("confirmed", f"http_{status}", message_id)
+                    return DeliveryResult("uncertain", f"unconfirmed_http_{status}")
+                if status == 429 and attempt == 0:
+                    try:
+                        delay = float(response.headers.get("Retry-After", "1"))
+                    except ValueError:
+                        delay = 1.0
+                    time.sleep(min(5.0, max(0.5, delay)))
+                    continue
+                if status >= 500:
+                    return DeliveryResult("uncertain", f"http_{status}")
+                return DeliveryResult("retryable", f"http_{status}")
+            return DeliveryResult("retryable", "http_429")
     finally:
         if owned:
             used.close()
@@ -268,27 +355,44 @@ def record_delivery(
     conn: sqlite3.Connection,
     candidates: list[Candidate],
     *,
-    status: str,
-    success: bool,
+    outcome: DeliveryResult,
     now: int | None = None,
 ) -> None:
     """Record a whole digest outcome and its per-article success in one commit."""
+    if outcome.state not in {"confirmed", "retryable", "uncertain"}:
+        raise ValueError("unknown delivery state")
+    if outcome.state == "confirmed" and not outcome.message_id:
+        raise ValueError("confirmed delivery requires a message ID")
     timestamp = int(time.time()) if now is None else now
     ids = [article_id for item in candidates for article_id in item.article_ids]
+    exclusion = "manual_reconciliation" if outcome.state == "uncertain" else None
     with conn:
         conn.executemany(
             """
             INSERT INTO technology_delivery_attempts
-                (article_id, attempts, last_attempted_at, last_status)
-            VALUES (?, 1, ?, ?)
+                (article_id, attempts, last_attempted_at, last_status,
+                 expires_at, last_message_id, excluded_reason)
+            VALUES (?, 1, ?, ?, ?, ?, ?)
             ON CONFLICT(article_id) DO UPDATE SET
                 attempts = attempts + 1,
                 last_attempted_at = excluded.last_attempted_at,
-                last_status = excluded.last_status
+                last_status = excluded.last_status,
+                last_message_id = excluded.last_message_id,
+                excluded_reason = excluded.excluded_reason
             """,
-            [(article_id, timestamp, status) for article_id in ids],
+            [
+                (
+                    article_id,
+                    timestamp,
+                    outcome.status,
+                    timestamp + PENDING_TTL_SECONDS,
+                    outcome.message_id,
+                    exclusion,
+                )
+                for article_id in ids
+            ],
         )
-        if success:
+        if outcome.state == "confirmed":
             conn.executemany(
                 """
                 INSERT OR IGNORE INTO article_notifications

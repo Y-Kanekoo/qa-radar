@@ -215,7 +215,7 @@ uv run python scripts/publish_release.py \
 ## DB スキーマのマイグレーション
 
 `init_db()` は DB の `schema_version` を読み、コード側の `SCHEMA_VERSION` まで
-マイグレーションを逐次適用する (現行 v7: 新技術通知の試行台帳を追加)。運用上の注意:
+マイグレーションを逐次適用する (現行 v8: 新技術通知の送達IDとpending期限を追加)。運用上の注意:
 
 - **一度上げたバージョンは戻せない**。v3 化した DB を旧コード (`SCHEMA_VERSION = 2`)
   で開くと前方保護の `RuntimeError`(`スキーマバージョン不一致: DB=3 > コード=2`)で
