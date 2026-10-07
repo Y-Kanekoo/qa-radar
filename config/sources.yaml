@@ -1,4 +1,4 @@
-# qa-radar ソースリスト（44本）
+# qa-radar ソースリスト（48本）
 #
 # スキーマ:
 #   slug:       一意ID (snake_case 推奨、DB の sources.slug に保存)
@@ -502,3 +502,46 @@ sources:
     enabled: true
     fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 30 }
     license_note: GitHub public repo Atom; ToS permits aggregation
+
+  # Technology watch: official OSS releases (verified on 2026-10-07).
+  # The daily technology digest uses only official release URLs. These sources
+  # share the existing crawl job and do not create another scheduled run.
+  - slug: playwright-mcp-releases
+    name: Playwright MCP releases
+    feed_url: https://github.com/microsoft/playwright-mcp/releases.atom
+    site_url: https://github.com/microsoft/playwright-mcp
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 20 }
+    license_note: GitHub public repo Atom; title, short excerpt, and source link only
+
+  - slug: browser-use-releases
+    name: Browser Use releases
+    feed_url: https://github.com/browser-use/browser-use/releases.atom
+    site_url: https://github.com/browser-use/browser-use
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 20 }
+    license_note: GitHub public repo Atom; title, short excerpt, and source link only
+
+  - slug: stagehand-releases
+    name: Stagehand releases
+    feed_url: https://github.com/browserbase/stagehand/releases.atom
+    site_url: https://github.com/browserbase/stagehand
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 20 }
+    license_note: GitHub public repo Atom; title, short excerpt, and source link only
+
+  - slug: skyvern-releases
+    name: Skyvern releases
+    feed_url: https://github.com/Skyvern-AI/skyvern/releases.atom
+    site_url: https://github.com/Skyvern-AI/skyvern
+    language: en
+    category: tool
+    enabled: true
+    fetch_policy: { min_interval_seconds: 3600, max_items_per_fetch: 20 }
+    license_note: GitHub public repo Atom; title, short excerpt, and source link only

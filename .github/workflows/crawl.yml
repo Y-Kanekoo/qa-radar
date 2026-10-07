@@ -3,7 +3,8 @@ name: Crawl, build, and deploy
 # cron: 09:00 / 15:00 / 21:00 JST (UTC = 00:00 / 06:00 / 12:00)
 on:
   schedule:
-    - cron: "0 0,6,12 * * *"
+    - cron: "0 0 * * *"
+    - cron: "0 6,12 * * *"
   workflow_dispatch:
     inputs:
       skip_discord:
@@ -33,6 +34,7 @@ jobs:
       added: ${{ steps.crawl.outputs.added }}
       pages_artifact: ${{ steps.mark_uploaded.outputs.uploaded }}
       notify_outcome: ${{ steps.notify.outcome }}
+      tech_notify_outcome: ${{ steps.tech_notify.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,8 +80,18 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_TECH_WATCH_WEBHOOK_URL: ${{ secrets.DISCORD_TECH_WATCH_WEBHOOK_URL }}
         run: |
           uv run python scripts/notify_discord.py --limit 20
+
+      # Reuse the 09:00 JST crawl. No extra Actions run or paid LLM call.
+      - name: Daily QA technology digest (skips if destination unset)
+        id: tech_notify
+        if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 0 * * *' && inputs.skip_discord != true }}
+        continue-on-error: true
+        env:
+          DISCORD_TECH_WATCH_WEBHOOK_URL: ${{ secrets.DISCORD_TECH_WATCH_WEBHOOK_URL }}
+        run: uv run python scripts/notify_technology_watch.py
 
       - name: Build pages
         run: uv run python scripts/build_pages.py
@@ -133,7 +145,7 @@ jobs:
     needs: [crawl-and-build, deploy]
     # deploy は skip_deploy=true 時に skipped になるだけなので、
     # `== 'failure'` 判定であれば誤発火しない。cancelled 時は発火させない。
-    if: ${{ !cancelled() && (needs.crawl-and-build.result == 'failure' || needs.deploy.result == 'failure' || needs.crawl-and-build.outputs.notify_outcome == 'failure') }}
+    if: ${{ !cancelled() && (needs.crawl-and-build.result == 'failure' || needs.deploy.result == 'failure' || needs.crawl-and-build.outputs.notify_outcome == 'failure' || needs.crawl-and-build.outputs.tech_notify_outcome == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # checkout (読み取り専用) と Discord への通知送信しか行わないため、
@@ -153,6 +165,7 @@ jobs:
           CRAWL_RESULT: ${{ needs.crawl-and-build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           NOTIFY_OUTCOME: ${{ needs.crawl-and-build.outputs.notify_outcome }}
+          TECH_NOTIFY_OUTCOME: ${{ needs.crawl-and-build.outputs.tech_notify_outcome }}
         run: |
           # ジョブ失敗 (crawl-and-build / deploy) を Discord通知の部分失敗より
           # 優先して先に並べる。複数該当する場合は全て併記する。
@@ -180,6 +193,9 @@ jobs:
           fi
           if [ "$NOTIFY_OUTCOME" = "failure" ]; then
             append_reason "crawl-and-build(通知)" "Discord通知ステップが失敗しました"
+          fi
+          if [ "$TECH_NOTIFY_OUTCOME" = "failure" ]; then
+            append_reason "crawl-and-build(新技術通知)" "QA新技術通知ステップが失敗しました"
           fi
 
           if [ -z "$status_description" ]; then

@@ -24,6 +24,7 @@ from qa_radar.publisher.notification_state import (
     fetch_unnotified,
     mark_notified,
 )
+from qa_radar.publisher.technology_watch import WATCH_CHANNEL, load_profiles
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -77,7 +78,20 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = init_db(args.db_path)
     try:
-        targets = fetch_unnotified(conn, limit=args.limit)
+        # New watch-only sources never enter the ordinary channel. Existing
+        # sources move only after the dedicated destination is configured.
+        profiles = load_profiles()
+        dedicated_ready = bool(os.environ.get("DISCORD_TECH_WATCH_WEBHOOK_URL", "").strip())
+        exclude = frozenset(
+            slug for slug, profile in profiles.items() if profile.dedicated_only or dedicated_ready
+        )
+        targets = fetch_unnotified(
+            conn,
+            limit=args.limit,
+            exclude_source_slugs=exclude,
+            exclude_notified_channels=frozenset({WATCH_CHANNEL}),
+            exclude_held_technology_watch=True,
+        )
         if not targets:
             log.info("未通知記事なし")
             return 0

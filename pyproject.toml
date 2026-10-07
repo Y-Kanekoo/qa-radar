@@ -76,6 +76,7 @@ include = [
     "config/sources.yaml",
     "config/tag_rules.yaml",
     "config/blocked.yaml",
+    "config/technology_watch.yaml",
     "LICENSE",
     "NOTICE",
     "README.md",

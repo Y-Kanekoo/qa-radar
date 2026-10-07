@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**qa-radar** collects articles, papers, and tool releases from 44 QA/testing
+**qa-radar** collects articles, papers, and tool releases from 48 QA/testing
 sources (Japanese + English) and serves them through three channels:
 
 1. **Public RSS feed** — hosted on GitHub Pages
@@ -42,14 +42,19 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | Multi-language (JP+EN) | ✅ | JP only | depends |
 | AI/ML tagging | ✅ rule-based + opt LLM | ❌ | ❌ |
 | Full-text search (FTS5 trigram) | ✅ | ❌ | ❌ |
-| Tool releases (13 repos) | ✅ | ❌ | ❌ |
+| Tool releases (17 repos) | ✅ | ❌ | ❌ |
 | Academic papers (arxiv) | ✅ | ❌ | ❌ |
 
 ## Sources
 
-44 verified sources across 5 categories (ja 16 / en 28):
-- **Tools (13)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure —
-  Phase 11 added AI/LLM testing tools: promptfoo, DeepEval, Giskard, Langfuse
+The [QA technology watch](docs/technology-watch.md) adds a daily digest of
+official tool releases to the existing crawl schedule. Its separate Discord
+destination must be configured before the four new sources send notifications.
+
+48 sources across 5 categories (ja 16 / en 32):
+- **Tools (17)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure —
+  Phase 11 added promptfoo, DeepEval, Giskard, Langfuse; technology watch added
+  Playwright MCP, Browser Use, Stagehand, Skyvern
 - **Blogs (20)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech, Cybozu, Sansan,
   KAKEHASHI, BASE, nihonbuson, kawaguti, goyoki, mybest (Zenn), etc. — Phase 9 added
   Snyk, TestRail, Maestro, Grafana Labs, Cypress Blog, Semaphore, Software Testing Magazine
