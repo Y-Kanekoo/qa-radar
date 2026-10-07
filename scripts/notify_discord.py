@@ -90,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             exclude_source_slugs=exclude,
             exclude_notified_channels=frozenset({WATCH_CHANNEL}),
+            exclude_held_technology_watch=True,
         )
         if not targets:
             log.info("未通知記事なし")

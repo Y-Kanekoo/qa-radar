@@ -262,6 +262,75 @@ def test_dedicated_delivery_stays_suppressed_after_webhook_removed(
     assert "未通知記事なし" in caplog.text
 
 
+@pytest.mark.parametrize("status", ["network_uncertain", "unconfirmed_http_204"])
+def test_uncertain_delivery_blocks_generic_until_explicit_reconciliation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    status: str,
+) -> None:
+    path = tmp_path / "articles.db"
+    conn = init_db(path)
+    sid = upsert_source(conn, _source("promptfoo-releases"))
+    insert_article(
+        conn,
+        _article(
+            sid,
+            "v1.0.0",
+            url="https://github.com/promptfoo/promptfoo/releases/tag/v1.0.0",
+        ),
+    )
+    article_id = conn.execute("SELECT id FROM articles").fetchone()[0]
+    conn.close()
+    monkeypatch.setenv("DISCORD_TECH_WATCH_WEBHOOK_URL", "https://discord.example/tech-synthetic")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.example/generic-synthetic")
+    monkeypatch.setattr(
+        notify_technology_watch,
+        "send_payload",
+        lambda *_args, **_kwargs: DeliveryResult("uncertain", status),
+    )
+    assert notify_technology_watch.main(["--db-path", str(path)]) == 2
+
+    monkeypatch.delenv("DISCORD_TECH_WATCH_WEBHOOK_URL")
+
+    async def unexpected_send(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("held article was sent to the ordinary Discord channel")
+
+    monkeypatch.setattr(notify_discord, "send_batch", unexpected_send)
+    with caplog.at_level("INFO"):
+        assert notify_discord.main(["--db-path", str(path)]) == 0
+    assert "未通知記事なし" in caplog.text
+
+    conn = init_db(path)
+    try:
+        row = conn.execute(
+            "SELECT excluded_reason FROM technology_delivery_attempts WHERE article_id = ?",
+            (article_id,),
+        ).fetchone()
+        assert row["excluded_reason"] == "manual_reconciliation"
+        assert conn.execute("SELECT COUNT(*) FROM article_notifications").fetchone()[0] == 0
+
+        # A human has checked Discord and explicitly decided that retry is safe.
+        with conn:
+            changed = conn.execute(
+                """
+                UPDATE technology_delivery_attempts
+                SET excluded_reason = NULL, last_status = 'reconciled_retry'
+                WHERE article_id = ? AND excluded_reason = 'manual_reconciliation'
+                """,
+                (article_id,),
+            ).rowcount
+        assert changed == 1
+    finally:
+        conn.close()
+
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        assert notify_discord.main(["--db-path", str(path), "--dry-run"]) == 0
+    assert "[DRY]" in caplog.text
+    assert "v1.0.0 release" in caplog.text
+
+
 def test_deferred_candidate_survives_lookback_then_expires_visibly(tmp_path: Path) -> None:
     path = tmp_path / "articles.db"
     conn, sid = _setup(path)

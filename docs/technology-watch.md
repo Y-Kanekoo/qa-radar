@@ -53,7 +53,10 @@ WebhookにはDiscord公式APIの `wait=true` を指定し、作成済みmessage 
 よると、既定 `wait=false` は保存されなくてもエラーを返さない場合がある。
 
 送達不明は台帳を確認し、Discord側の実在とmessage IDを人が照合してから
-再送または既送信登録を判断する。送信成功後のDB保存・Release公開失敗では、
+再送または既送信登録を判断する。`manual_reconciliation` の間は専用Webhookを
+外しても通常記事チャンネルへ流れない。実在しないことを確認して再送する場合だけ
+台帳の `excluded_reason` を解除し、再選択を許可する。送信成功後のDB保存・
+Release公開失敗では、
 次回に同じダイジェストを送る可能性が残る。WebhookとSQLiteを単一
 トランザクションにはできないため、厳密なexactly-once配信は保証しない。
 専用Webhookの設定を外しても、専用チャネルで送達済みの記事は通常記事Webhookへ

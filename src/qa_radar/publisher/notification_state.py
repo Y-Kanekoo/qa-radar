@@ -31,6 +31,7 @@ def fetch_unnotified(
     since_unix: int | None = None,
     exclude_source_slugs: frozenset[str] = frozenset(),
     exclude_notified_channels: frozenset[str] = frozenset(),
+    exclude_held_technology_watch: bool = False,
 ) -> list[UnnotifiedArticle]:
     """指定 channel に未通知の記事を取得する.
 
@@ -41,6 +42,7 @@ def fetch_unnotified(
         channel: 通知チャネル名 (既定 'discord').
         limit: 最大取得件数.
         since_unix: 指定するとこの時刻以降に fetch された記事のみ返す.
+        exclude_held_technology_watch: 送達不明で手動照合中の記事を除く.
 
     Returns:
         UnnotifiedArticle のリスト. published_at DESC 順.
@@ -56,6 +58,13 @@ def fetch_unnotified(
         placeholders = ", ".join("?" for _ in exclude_source_slugs)
         where_extra += f" AND s.slug NOT IN ({placeholders})"
         params.extend(sorted(exclude_source_slugs))
+    if exclude_held_technology_watch:
+        where_extra += """
+        AND NOT EXISTS (
+            SELECT 1 FROM technology_delivery_attempts t
+            WHERE t.article_id = a.id AND t.excluded_reason = 'manual_reconciliation'
+        )
+        """
 
     sql = f"""
         SELECT a.id, a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,
