@@ -580,7 +580,7 @@ def test_v5_db_migrates_to_v6_and_backfills_duplicates(
             703: 701,
         }
 
-        assert version == 6
+        assert version == SCHEMA_VERSION
         assert actual == expected
         assert "schema v6: 5 件をマーク / 1 件補正 / 2 件解除" in caplog.messages
 
@@ -832,34 +832,37 @@ def test_apply_migrations_skips_versions_already_applied_by_another_process(
         conn.close()
 
 
-def test_migrations_are_applied_sequentially_through_dummy_v7(
+def test_migrations_are_applied_sequentially_through_dummy_v8(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """v2→v3→v4→v5→v6 の後に一時登録した v7 が順番に適用される."""
+    """v2→v3→v4→v5→v6→v7 の後に一時登録した v8 が順番に適用される."""
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     applied: list[int] = []
 
-    def migrate_to_v7(conn: sqlite3.Connection) -> None:
+    def migrate_to_v8(conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         assert "duplicate_of" in columns
         fts_sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'articles_fts'"
         ).fetchone()["sql"]
         assert "tokenize='trigram'" in fts_sql
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='technology_delivery_attempts'"
+        ).fetchone()
         conn.execute("ALTER TABLE articles ADD COLUMN migration_probe INTEGER")
-        applied.append(7)
+        applied.append(8)
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 7)
-    monkeypatch.setitem(db_module.MIGRATIONS, 7, migrate_to_v7)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 8)
+    monkeypatch.setitem(db_module.MIGRATIONS, 8, migrate_to_v8)
 
     conn = init_db(db_path)
     try:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
         version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
-        assert applied == [7]
+        assert applied == [8]
         assert "migration_probe" in columns
-        assert version == 7
+        assert version == 8
     finally:
         conn.close()
 
@@ -876,8 +879,8 @@ def test_failed_migration_rolls_back_schema_and_version(
         conn.execute("ALTER TABLE articles ADD COLUMN unfinished INTEGER")
         raise RuntimeError("意図した失敗")
 
-    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 7)
-    monkeypatch.setitem(db_module.MIGRATIONS, 7, failing_migration)
+    monkeypatch.setattr(db_module, "SCHEMA_VERSION", 8)
+    monkeypatch.setitem(db_module.MIGRATIONS, 8, failing_migration)
 
     with pytest.raises(RuntimeError, match="意図した失敗"):
         init_db(db_path)
@@ -897,11 +900,11 @@ def test_newer_database_version_is_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _create_v2_db(db_path)
     raw_conn = sqlite3.connect(db_path)
-    raw_conn.execute("UPDATE schema_version SET version = 7")
+    raw_conn.execute("UPDATE schema_version SET version = 8")
     raw_conn.commit()
     raw_conn.close()
 
-    with pytest.raises(RuntimeError, match=r"DB=7 > コード=6"):
+    with pytest.raises(RuntimeError, match=r"DB=8 > コード=7"):
         init_db(db_path)
 
 

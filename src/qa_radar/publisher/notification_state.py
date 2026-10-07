@@ -29,6 +29,7 @@ def fetch_unnotified(
     channel: str = DISCORD_CHANNEL,
     limit: int = 100,
     since_unix: int | None = None,
+    exclude_source_slugs: frozenset[str] = frozenset(),
 ) -> list[UnnotifiedArticle]:
     """指定 channel に未通知の記事を取得する.
 
@@ -48,6 +49,10 @@ def fetch_unnotified(
     if since_unix is not None:
         where_extra = "AND a.fetched_at >= ?"
         params.append(since_unix)
+    if exclude_source_slugs:
+        placeholders = ", ".join("?" for _ in exclude_source_slugs)
+        where_extra += f" AND s.slug NOT IN ({placeholders})"
+        params.extend(sorted(exclude_source_slugs))
 
     sql = f"""
         SELECT a.id, a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,

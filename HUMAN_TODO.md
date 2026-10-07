@@ -4,6 +4,7 @@
 完了したら `- [x]` に更新すること。詳細な手順は [docs/operations.md](docs/operations.md) を参照。
 
 - [ ] Discord webhook(記事通知用)を作成し GitHub Secrets DISCORD_WEBHOOK_URL に登録 #p1 #deploy
+- [ ] 「学習」カテゴリの新技術通知先を一意に確認した後、別途許可を得て Webhook を作成し Secret `DISCORD_TECH_WATCH_WEBHOOK_URL` に登録 #p1 #deploy
 - [ ] Discord webhook(運用アラート用)を作成し GitHub Secrets DISCORD_ALERT_WEBHOOK_URL に登録 #p1 #deploy
 - [ ] ANTHROPIC_API_KEY を GitHub Secrets に登録(週次ダイジェスト用、Haiku週1回) #p1 #deploy
 - [x] Settings > Pages の Source が「GitHub Actions」であることを確認 (2026-07-30 設定済み) #p2 #deploy

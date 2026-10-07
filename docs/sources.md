@@ -1,6 +1,6 @@
 # qa-radar ソース一覧と利用規約状況
 
-> 最終更新: 2026-07-13 / 全URLは WebFetch で200応答を実物確認済み（計44本）
+> 既存44本は2026-07-13にWebFetchで確認。追加4本は2026-10-07に公式GitHubのrepo・release履歴を確認し、AtomフィードHTTP 200と各10件の解析を確認（計48本）。
 
 ## 法的フレームワーク
 
@@ -116,6 +116,15 @@
 | `deepeval-releases` | [DeepEval](https://github.com/confident-ai/deepeval/releases.atom) | en | GitHub ToS、再配信OK |
 | `giskard-releases` | [Giskard](https://github.com/Giskard-AI/giskard/releases.atom) | en | GitHub ToS、再配信OK |
 | `langfuse-releases` | [Langfuse](https://github.com/langfuse/langfuse/releases.atom) | en | GitHub ToS、再配信OK |
+
+### QA新技術ウォッチ追加: ブラウザエージェント・Computer Use（4）
+
+| Slug | ソース | 言語 | 規約 |
+|---|---|---|---|
+| `playwright-mcp-releases` | [Playwright MCP](https://github.com/microsoft/playwright-mcp/releases.atom) | en | GitHub公式公開release、短い抜粋とリンク |
+| `browser-use-releases` | [Browser Use](https://github.com/browser-use/browser-use/releases.atom) | en | GitHub公式公開release、短い抜粋とリンク |
+| `stagehand-releases` | [Stagehand](https://github.com/browserbase/stagehand/releases.atom) | en | GitHub公式公開release、短い抜粋とリンク |
+| `skyvern-releases` | [Skyvern](https://github.com/Skyvern-AI/skyvern/releases.atom) | en | GitHub公式公開release、短い抜粋とリンク |
 
 ## 明示的にブロックしているソース
 

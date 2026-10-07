@@ -30,7 +30,7 @@ from qa_radar.tools import _word_boundary_match
 
 logger = logging.getLogger("qa_radar.db")
 
-SCHEMA_VERSION = 6  # v6: 既存のクロスソース転載重複をバックフィル
+SCHEMA_VERSION = 7  # v7: 新技術通知の失敗・再送台帳
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -121,6 +121,15 @@ CREATE TABLE IF NOT EXISTS article_notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel);
 CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id);
+
+-- v7: 新技術ダイジェストの送信試行を記事ごとに記録する。成功状態は
+-- article_notifications(channel='discord-technology-watch') に保持する。
+CREATE TABLE IF NOT EXISTS technology_delivery_attempts (
+    article_id INTEGER PRIMARY KEY REFERENCES articles(id),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_attempted_at INTEGER NOT NULL,
+    last_status TEXT NOT NULL
+);
 
 -- v5 (Phase D1): 週刊 LLM ダイジェスト. 公開済みメタデータから生成した Markdown のみ保存する.
 CREATE TABLE IF NOT EXISTS digests (
@@ -257,6 +266,20 @@ def _migrate_to_v6(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_to_v7(conn: sqlite3.Connection) -> None:
+    """新技術通知の失敗・再送を観測できる台帳を追加する."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS technology_delivery_attempts (
+            article_id INTEGER PRIMARY KEY REFERENCES articles(id),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_attempted_at INTEGER NOT NULL,
+            last_status TEXT NOT NULL
+        )
+        """
+    )
+
+
 # キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
 # 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
 MIGRATIONS: dict[int, Migration] = {
@@ -265,6 +288,7 @@ MIGRATIONS: dict[int, Migration] = {
     4: _migrate_to_v4,
     5: _migrate_to_v5,
     6: _migrate_to_v6,
+    7: _migrate_to_v7,
 }
 
 
