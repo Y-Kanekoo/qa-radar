@@ -36,6 +36,7 @@ dependencies = [
     "pyyaml>=6.0",
     "mcp>=1.27",
     "platformdirs>=4.0",
+    "radar-core @ git+https://github.com/Y-Kanekoo/radar-core@v0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -63,6 +64,10 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# タグ固定の共有ライブラリを配布メタデータにも記録する。
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qa_radar"]

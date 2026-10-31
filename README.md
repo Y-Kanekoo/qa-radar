@@ -15,6 +15,10 @@ sources (Japanese + English) and serves them through three channels:
 
 For the Japanese readme, see [README.ja.md](README.ja.md).
 
+共有ライブラリ radar-core v0.1.0 をタグ固定で利用し、日時変換・HTML除去・本文ハッシュを
+既存モジュールから委譲しています。移行範囲・次段階の候補は
+[段階的導入メモ](docs/radar-core.md) を参照してください。
+
 ## Status
 
 🚧 Under active development.

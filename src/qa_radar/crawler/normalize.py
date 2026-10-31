@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-import calendar
 import hashlib
 import re
-import time
-from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from radar_core import normalize as _core_normalize
 
 # 削除する追跡パラメータ. 大文字小文字区別なし.
 TRACKING_PARAMS = frozenset(
@@ -50,38 +49,12 @@ def normalize_url(url: str) -> str:
 
 def normalize_published(struct_time: tuple[int, ...] | None) -> int:
     """published_parsed (UTC tuple) をUNIX秒に変換. None は現在時刻を返す."""
-    if struct_time is None:
-        return int(time.time())
-    padded = struct_time + (0,) * (9 - len(struct_time))
-    return calendar.timegm(padded)
-
-
-class _StripTags(HTMLParser):
-    """HTMLタグを除去しテキストノードのみ抽出する補助パーサ."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._chunks: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self._chunks.append(data)
-
-    def get_text(self) -> str:
-        return "".join(self._chunks)
+    return _core_normalize.normalize_published(struct_time)
 
 
 def strip_html(text: str) -> str:
     """HTMLタグを除去しエンティティをデコードする."""
-    if not text:
-        return ""
-    parser = _StripTags()
-    try:
-        parser.feed(text)
-        parser.close()
-    except (ValueError, AssertionError):
-        # 壊れたHTMLの場合は元テキストをそのまま返す
-        return text
-    return parser.get_text()
+    return _core_normalize.strip_html(text)
 
 
 _WS = re.compile(r"\s+")
@@ -135,4 +108,4 @@ def hash_normalized_body(normalized_body: str) -> str:
 
 def compute_body_hash(body: str) -> str:
     """正規化後本文の SHA256 hex digest. クロスソース重複検出用."""
-    return hash_normalized_body(normalize_body_text(body))
+    return _core_normalize.compute_body_hash(body)

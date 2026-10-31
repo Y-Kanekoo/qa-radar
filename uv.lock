@@ -1011,6 +1011,7 @@ dependencies = [
     { name = "mcp" },
     { name = "platformdirs" },
     { name = "pyyaml" },
+    { name = "radar-core" },
 ]
 
 [package.optional-dependencies]
@@ -1035,6 +1036,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.27" },
     { name = "platformdirs", specifier = ">=4.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "radar-core", git = "https://github.com/Y-Kanekoo/radar-core?rev=v0.1.0" },
 ]
 provides-extras = ["ai"]
 
@@ -1044,6 +1046,15 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
+name = "radar-core"
+version = "0.1.0"
+source = { git = "https://github.com/Y-Kanekoo/radar-core?rev=v0.1.0#d4301e178c1fd17e1c4688e9442f4ddd0c2ebe02" }
+dependencies = [
+    { name = "feedparser" },
+    { name = "httpx" },
 ]
 
 [[package]]
