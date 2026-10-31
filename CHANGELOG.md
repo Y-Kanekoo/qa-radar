@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- radar-core v0.1.0 を Git タグ固定で導入。日時変換・HTML除去・本文ハッシュのみを
+  既存モジュールから委譲し、互換性テストと段階的導入メモを追加。
+  URL・抜粋・取得・解析・Discord 通知は挙動差があるため既存実装を維持。
 - schema **v6**: v3 化前から DB に存在するクロスソース転載重複をバックフィル。
   クロール時と同じ本文正規化・200文字ガードを使い、同一ソース内だけの重複は除外する。
   既存マークも `published_at ASC, id ASC` の最古記事を元に補正し、過去の転載を
