@@ -5,5 +5,5 @@
 
 - [ ] Discord webhook(記事通知用)を作成し GitHub Secrets DISCORD_WEBHOOK_URL に登録 #p1 #deploy
 - [ ] Discord webhook(運用アラート用)を作成し GitHub Secrets DISCORD_ALERT_WEBHOOK_URL に登録 #p1 #deploy
-- [ ] ANTHROPIC_API_KEY を GitHub Secrets に登録(週次ダイジェスト用、Haiku週1回) #p1 #deploy
+- [x] ~~ANTHROPIC_API_KEY を GitHub Secrets に登録(週次ダイジェスト用、Haiku週1回)~~ 不要: 無料運用方針のため登録しない (2026-10-31)。週刊 LLM ダイジェストは未設定時スキップで運用 #p1 #deploy
 - [x] Settings > Pages の Source が「GitHub Actions」であることを確認 (2026-07-30 設定済み) #p2 #deploy
