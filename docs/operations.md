@@ -56,14 +56,15 @@ DB スナップショット (ステップ 5) は Pages 関連ステップ (ス�
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | 新着記事の通知用 Discord webhook | 推奨 (未設定でも実行は継続、通知のみスキップされる) |
 | `DISCORD_ALERT_WEBHOOK_URL` | 運用アラート通知用 (crawl 失敗検知)、および週次ヘルスレポート (`health.yml`) の送信先 | 使用中。未設定でも実行は継続 (crawl.yml のアラートはスキップ、health.yml のレポートは stdout 出力のみで exit 0) |
-| `ANTHROPIC_API_KEY` | 週刊 LLM ダイジェストの生成 (Claude Haiku、週1回) | 必要。未設定時は warning を出して生成・DB保存・Discord配信をスキップし exit 0 |
+| `ANTHROPIC_API_KEY` | 週刊 LLM ダイジェストの生成 (Claude Haiku、週1回、有料API) | **任意 (現在の運用方針では未設定)**。無料運用のため登録しない。未設定時は warning を出して生成・DB保存・Discord配信をスキップし exit 0 (クロール・通知・Pages・ヘルスレポートは影響なし) |
 
 登録方法 (`gh` CLI):
 
 ```bash
 gh secret set DISCORD_WEBHOOK_URL --repo Y-Kanekoo/qa-radar
 gh secret set DISCORD_ALERT_WEBHOOK_URL --repo Y-Kanekoo/qa-radar
-gh secret set ANTHROPIC_API_KEY --repo Y-Kanekoo/qa-radar
+# 有料 API を使う場合のみ (現在の無料運用では登録しない)
+# gh secret set ANTHROPIC_API_KEY --repo Y-Kanekoo/qa-radar
 ```
 
 (実行するとプロンプトで値の入力を求められる。標準入力から渡す場合は
@@ -125,7 +126,11 @@ Claude Haiku が主要記事を約30件に厳選した日本語の週報を生�
 記事本文は取得も送信もしない。生成結果は schema v5 の `digests` テーブルへ保存し、stdout と
 `DISCORD_WEBHOOK_URL` へ出力する。次回の Pages ビルドでは最新1件を `digest.html` に表示する。
 
-必要な Secrets は `ANTHROPIC_API_KEY` と `DISCORD_WEBHOOK_URL`。前者が未設定または `anthropic`
+> **無料運用 (2026-10-31 方針)**: `ANTHROPIC_API_KEY` は登録しない。このため週刊 LLM ダイジェストは
+> 毎週 warning 付きでスキップされる (ジョブは成功扱い)。これは想定どおりの挙動であり、対応不要。
+> 有料 API を使う方針に変えた場合のみ、下記の Secrets を登録すると生成が再開される。
+
+生成に必要な Secrets は `ANTHROPIC_API_KEY` と `DISCORD_WEBHOOK_URL`。前者が未設定または `anthropic`
 が利用できない場合は warning のうえ exit 0 で生成をスキップする。後者が未設定の場合は DB 保存まで
 行い、Discord 配信だけをスキップする。DB 保存に成功したときは Discord 配信が失敗しても、同じ
 workflow 内で `publish_release.py --mode full --retention-days 7` を実行してダイジェスト入り DB を
@@ -135,7 +140,7 @@ workflow 内で `publish_release.py --mode full --retention-days 7` を実行し
 
 失敗時は Actions の `Weekly LLM digest (生成 + Discord送信)` ステップを確認する。
 
-- `ANTHROPIC_API_KEY ... スキップ`: 設定漏れ。ジョブ自体は成功するがダイジェストは生成されない
+- `ANTHROPIC_API_KEY ... スキップ`: 無料運用では想定どおり (未設定)。ジョブ自体は成功し、ダイジェストは生成されない
 - `週刊ダイジェストの生成または DB 保存に失敗`: Anthropic API の障害・利用制限、または DB の
   復元/マイグレーション異常を確認する。シークレット保護のため API の例外本文はログに出さない
 - `Discord 配信に失敗`: ダイジェストの DB 保存後に webhook 配信が失敗した状態。Webhook の失効や
