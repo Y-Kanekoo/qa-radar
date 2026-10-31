@@ -18,7 +18,7 @@ GitHub Actions の cron ワークフローは以下の2本立て。
 
 `.github/workflows/crawl.yml` が GitHub Actions の cron で以下を毎日 3 回実行する。
 
-- **スケジュール**: JST 9:00 / 15:00 / 21:00 (= UTC 0:00 / 6:00 / 12:00、`cron: "0 0,6,12 * * *"`)
+- **スケジュール**: JST 9:00 / 15:00 / 21:00 (= UTC 0:00 / 6:00 / 12:00、`cron: "0 0 * * *"` と `cron: "0 6,12 * * *"`。実行回数は従来と同じ)
 - **実行内容** (`crawl-and-build` ジョブ → `deploy` ジョブ):
   1. 前回 DB スナップショットを GitHub Releases から復元 (無ければ新規作成)
   2. クロール + 自動タグ付け (`scripts/run_crawl.py`)
@@ -215,7 +215,7 @@ uv run python scripts/publish_release.py \
 ## DB スキーマのマイグレーション
 
 `init_db()` は DB の `schema_version` を読み、コード側の `SCHEMA_VERSION` まで
-マイグレーションを逐次適用する (現行 v6: 既存の転載重複をバックフィル)。運用上の注意:
+マイグレーションを逐次適用する (現行 v8: 新技術通知の送達IDとpending期限を追加)。運用上の注意:
 
 - **一度上げたバージョンは戻せない**。v3 化した DB を旧コード (`SCHEMA_VERSION = 2`)
   で開くと前方保護の `RuntimeError`(`スキーマバージョン不一致: DB=3 > コード=2`)で

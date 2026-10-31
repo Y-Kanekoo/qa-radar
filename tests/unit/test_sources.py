@@ -14,10 +14,10 @@ from qa_radar.sources import (
 )
 
 
-def test_loads_44_sources_from_real_yaml() -> None:
-    """実際の config/sources.yaml が 44 ソースで正常パース."""
+def test_loads_48_sources_from_real_yaml() -> None:
+    """実際の config/sources.yaml が 48 ソースで正常パース."""
     sources = load_sources()
-    assert len(sources) == 44
+    assert len(sources) == 48
 
 
 def test_all_sources_have_required_fields() -> None:

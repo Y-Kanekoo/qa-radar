@@ -19,10 +19,11 @@ from qa_radar.summarizer.digest import (
 
 
 def _create_v4_db(path: Path) -> None:
-    """最新版から v5 オブジェクトを除き、実スキーマ相当の v4 DB を作る."""
+    """最新版から v5・v7 オブジェクトを除き、実スキーマ相当の v4 DB を作る."""
     conn = init_db(path)
     try:
         conn.execute("DROP TABLE digests")
+        conn.execute("DROP TABLE technology_delivery_attempts")
         conn.execute("UPDATE schema_version SET version = 4")
         conn.commit()
     finally:
