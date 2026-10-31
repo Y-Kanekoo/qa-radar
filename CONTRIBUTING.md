@@ -47,5 +47,5 @@ uv run ruff format --check .
 - Python 3.11+ syntax (no compat with 3.10)
 - All comments in Japanese, but identifiers (variable/function/class names) in English
 - Type hints required for public functions; no `Any` allowed
-- ruff (E, F, I, B, UP, N, SIM, RUF) must pass with line length 100
+- ruff (E, F, I, B, UP, N, SIM, RUF, C4, PTH, TID) must pass with line length 100
 - pytest coverage target: ≥80%

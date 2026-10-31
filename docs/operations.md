@@ -90,7 +90,7 @@ gh run view <run-id> --repo Y-Kanekoo/qa-radar
 | 失敗ステップ | 所属ジョブ | 分類 | 影響・対応 |
 |---|---|---|---|
 | `Crawl + tag (自動でタグ付け)` | `crawl-and-build` | 収集系 | 記事収集そのものが失敗。フィード取得先の障害・パースエラー・依存関係エラーなどを疑う。ログの `crawl.log` 相当を確認 |
-| `Notify Discord (idempotent, skips if URL unset)` | `crawl-and-build` | 通知系 | `\|\| true` で握りつぶされ、後続ステップには影響しない。Secrets 未設定 or webhook 側の問題を疑う |
+| `Notify Discord (idempotent, skips if URL unset)` | `crawl-and-build` | 通知系 | `continue-on-error: true` により後続ステップは継続し、通知失敗は `alert` ジョブから通知される。Secrets 未設定または webhook 側の問題を疑う |
 | `Build pages` | `crawl-and-build` | ビルド系 | この失敗により後続の `Publish DB snapshot to GH Releases` も**スキップされる**(直列実行・`if: always()` なし)。今回クロールした記事は Release に残らないが、次回実行時に再クロールされるため取りこぼしにはならない |
 | `Publish DB snapshot to GH Releases` | `crawl-and-build` | 永続化系 | `Crawl + tag` / `Build pages` が成功していればここは通常失敗しない。`gh` CLI の権限 (`contents: write`) や API 制限を疑う |
 | `Configure Pages` / `Upload Pages artifact` | `crawl-and-build` | Pages 設定系 | 上記「初期セットアップ 1」の設定漏れが最有力原因。**この時点で DB スナップショットは既に Release へ保存済み**なので、データ消失の心配はない |
@@ -169,8 +169,8 @@ uv run python scripts/weekly_digest.py --db-path data/articles.db
 
 この統合テストのステップは DB 復元の成否や DB スナップショットの有無に関わらず**常に実行**される
 (DB に依存しないテストのため)。DB スナップショットが Releases に存在しない場合 (初回実行時など) は
-「全体統計 + Discord送信」の健全性レポートのみスキップされ、GitHub Actions の run summary に
-warning として記録される。
+健全性レポートと週刊 LLM ダイジェストの生成・送信がスキップされ、GitHub Actions に
+warning annotation として記録される。
 
 DB 復元ステップ (`scripts/publish_release.py --mode download`) の終了コードは以下のように扱う:
 

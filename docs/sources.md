@@ -99,9 +99,9 @@
 | `cypress-blog` | [Cypress Blog](https://www.cypress.io/blog/rss.xml) | en | 公開RSS、E2Eチュートリアル観点、引用+リンクバック |
 | `semaphore-blog` | [Semaphore CI/CD Blog](https://semaphore.io/blog/feed) | en | 公開RSS、CI/CD観点、引用+リンクバック |
 | `software-testing-magazine` | [Software Testing Magazine](https://www.softwaretestingmagazine.com/feed/) | en | 公開RSS、QA総合観点、引用+リンクバック |
-| `qiita-test-automation` | [Qiita タグ「テスト自動化」](https://qiita.com/tags/テスト自動化) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
-| `qiita-qa` | [Qiita タグ「QA」](https://qiita.com/tags/qa) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
-| `zenn-testing` | [Zenn トピック「testing」](https://zenn.dev/topics/testing) | ja | Zenn公開トピックフィード、本文転載NG・抜粋+リンクバック |
+| `qiita-test-automation` | [Qiita タグ「テスト自動化」](https://qiita.com/tags/%E3%83%86%E3%82%B9%E3%83%88%E8%87%AA%E5%8B%95%E5%8C%96/feed) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
+| `qiita-qa` | [Qiita タグ「QA」](https://qiita.com/tags/qa/feed) | ja | Qiita公開タグフィード、本文転載NG・抜粋+リンクバック |
+| `zenn-testing` | [Zenn トピック「testing」](https://zenn.dev/topics/testing/feed) | ja | Zenn公開トピックフィード、本文転載NG・抜粋+リンクバック |
 
 ### Phase 11 追加: AI/LLM testing（4）
 

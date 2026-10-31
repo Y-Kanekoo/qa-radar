@@ -40,7 +40,7 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 |---------|----------|------------------------------|------------------|
 | MCP support | ✅ | ❌ | ✅ |
 | Multi-language (JP+EN) | ✅ | JP only | depends |
-| AI/ML tagging | ✅ rule-based + opt LLM | ❌ | ❌ |
+| Tagging | ✅ rule-based | ❌ | ❌ |
 | Full-text search (FTS5 trigram) | ✅ | ❌ | ❌ |
 | Tool releases (13 repos) | ✅ | ❌ | ❌ |
 | Academic papers (arxiv) | ✅ | ❌ | ❌ |
@@ -63,7 +63,7 @@ See [config/sources.yaml](config/sources.yaml) for the full list and
 
 ## MCP server usage
 
-The local MCP server exposes 5 tools you can call from Claude Desktop / Claude Code:
+The local MCP server exposes 5 standard tools, plus an optional summarization tool, for Claude Desktop / Claude Code:
 
 - `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5 trigram + BM25; mixed queries use FTS for terms of 3+ characters and LIKE for shorter terms, restricting short ASCII alphanumeric terms to word-boundary matches; all-short queries use LIKE ordered by publication date
 - `list_recent(days, source?, tag?, limit)` — recent articles
