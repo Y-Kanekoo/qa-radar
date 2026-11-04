@@ -4,18 +4,33 @@
 
 - WAL モード: 並列読み取り（クローラー実行中に MCP も同DBを開く想定）
 - 外部コンテンツ FTS5 (`content='articles'`): ストレージ二重持ちを避け、トリガで同期
-- `tokenize='porter unicode61 remove_diacritics 2'`:
-    英語は porter stemming, アクセント記号は除去. 日本語は分かち書きしないが
-    タイトル・タグの完全一致検索は機能する.
+- `tokenize='trigram'`: 3文字以上の日本語・英語を部分一致検索. 3文字未満の語を
+    含むクエリは検索ツール側で FTS と LIKE を組み合わせる.
 - `schema_version` テーブル: 将来のマイグレーション用バージョン番号を保持
+
+**注意 (foot-gun)**: `_SCHEMA_SQL` は **新規 DB の作成にしか使われない**.
+既存 DB には一切流れないため、テーブル・インデックス・トリガを追加するときは
+`_SCHEMA_SQL` と `MIGRATIONS` の **両方** に書くこと. 片方だけだと、新規 DB では
+存在するのに既存 DB には永久に作られないオブジェクトが生まれる.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+from collections.abc import Callable
+from itertools import groupby
 from pathlib import Path
 
-SCHEMA_VERSION = 2  # v2: article_notifications テーブルを追加 (Phase 4)
+from qa_radar.crawler.dedup import (
+    is_normalized_body_eligible_for_dedup,
+    normalize_body_for_dedup,
+)
+from qa_radar.tools import _word_boundary_match
+
+logger = logging.getLogger("qa_radar.db")
+
+SCHEMA_VERSION = 6  # v6: 既存のクロスソース転載重複をバックフィル
 
 _SCHEMA_SQL = """
 PRAGMA journal_mode = WAL;
@@ -54,6 +69,7 @@ CREATE TABLE IF NOT EXISTS articles (
     published_at INTEGER NOT NULL,
     fetched_at INTEGER NOT NULL,
     tags_json TEXT NOT NULL DEFAULT '[]',
+    duplicate_of INTEGER REFERENCES articles(id),
     UNIQUE(source_id, guid)
 );
 
@@ -66,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_body_hash ON articles(body_hash);
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
     title, body, tags_json,
     content='articles', content_rowid='id',
-    tokenize='porter unicode61 remove_diacritics 2'
+    tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS articles_ai AFTER INSERT ON articles BEGIN
@@ -105,7 +121,208 @@ CREATE TABLE IF NOT EXISTS article_notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel);
 CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id);
+
+-- v5 (Phase D1): 週刊 LLM ダイジェスト. 公開済みメタデータから生成した Markdown のみ保存する.
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    content_md TEXT NOT NULL
+);
 """
+
+Migration = Callable[[sqlite3.Connection], None]
+
+
+def _migrate_to_v2(conn: sqlite3.Connection) -> None:
+    """v1 から v2 へ通知状態テーブルを追加する."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS article_notifications (
+            id INTEGER PRIMARY KEY,
+            article_id INTEGER NOT NULL REFERENCES articles(id),
+            channel TEXT NOT NULL,
+            notified_at INTEGER NOT NULL,
+            UNIQUE(article_id, channel)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifications_channel ON article_notifications(channel)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notifications_article ON article_notifications(article_id)"
+    )
+
+
+def _migrate_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 から v3 へ転載元記事 ID 列を追加する."""
+    conn.execute("ALTER TABLE articles ADD COLUMN duplicate_of INTEGER REFERENCES articles(id)")
+
+
+def _migrate_to_v4(conn: sqlite3.Connection) -> None:
+    """v3 から v4 へ FTS5 を trigram トークナイザで再構築する.
+
+    同期トリガは articles テーブルに属し、FTS テーブルを DROP しても残る。呼び出し元の
+    BEGIN IMMEDIATE が同時書き込みを防ぐため、DROP から再作成までの間にトリガが発火する
+    こともない。再作成後に articles 本体の全件を rebuild する。
+    """
+    conn.execute("DROP TABLE articles_fts")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE articles_fts USING fts5(
+            title, body, tags_json,
+            content='articles', content_rowid='id',
+            tokenize='trigram'
+        )
+        """
+    )
+    conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('rebuild')")
+
+
+def _migrate_to_v5(conn: sqlite3.Connection) -> None:
+    """v4 から v5 へ週刊 LLM ダイジェスト保存テーブルを追加する."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS digests (
+            id INTEGER PRIMARY KEY,
+            created_at INTEGER NOT NULL,
+            period_start INTEGER NOT NULL,
+            period_end INTEGER NOT NULL,
+            content_md TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _migrate_to_v6(conn: sqlite3.Connection) -> None:
+    """v5 から v6 へ既存のクロスソース転載重複をバックフィルする."""
+    rows = conn.execute(
+        """
+        SELECT id, source_id, body_hash, body, published_at, duplicate_of
+        FROM articles
+        ORDER BY body_hash ASC, published_at ASC, id ASC
+        """
+    ).fetchall()
+    newly_marked_count = 0
+    corrected_count = 0
+    released_count = 0
+
+    for _, grouped_rows in groupby(rows, key=lambda row: str(row["body_hash"])):
+        group = list(grouped_rows)
+        eligible = [
+            row
+            for row in group
+            if is_normalized_body_eligible_for_dedup(normalize_body_for_dedup(row["body"]))
+        ]
+        source_ids = {int(row["source_id"]) for row in eligible}
+        expected_duplicate_of: dict[int, int | None] = {int(row["id"]): None for row in group}
+        if len(source_ids) >= 2:
+            original_id = int(eligible[0]["id"])
+            original_source_id = int(eligible[0]["source_id"])
+            expected_duplicate_of.update(
+                {
+                    int(row["id"]): original_id
+                    for row in eligible[1:]
+                    if int(row["source_id"]) != original_source_id
+                }
+            )
+
+        for row in group:
+            article_id = int(row["id"])
+            current = int(row["duplicate_of"]) if row["duplicate_of"] is not None else None
+            expected = expected_duplicate_of[article_id]
+            if current == expected:
+                continue
+
+            # クロール順によって元記事が後着した既存 DB もあり得るため、現在の印を
+            # 前提にせず最古記事から再構成する。同時に短文・同一ソースのみの誤印も外す。
+            conn.execute(
+                "UPDATE articles SET duplicate_of = ? WHERE id = ?",
+                (expected, article_id),
+            )
+            if current is None and expected is not None:
+                newly_marked_count += 1
+            elif expected is None:
+                released_count += 1
+            else:
+                corrected_count += 1
+
+    logger.info(
+        "schema v6: %d 件をマーク / %d 件補正 / %d 件解除",
+        newly_marked_count,
+        corrected_count,
+        released_count,
+    )
+
+
+# キーは適用後のバージョン。将来の変更も version: migration の形で逐次追加する。
+# 新しいオブジェクトを足すときは _SCHEMA_SQL への追記だけで済ませないこと (冒頭の注意参照)。
+MIGRATIONS: dict[int, Migration] = {
+    2: _migrate_to_v2,
+    3: _migrate_to_v3,
+    4: _migrate_to_v4,
+    5: _migrate_to_v5,
+    6: _migrate_to_v6,
+}
+
+
+def _get_schema_version(conn: sqlite3.Connection) -> int | None:
+    """バージョンを返す. schema_version テーブル自体が無い新規 DB では None.
+
+    Raises:
+        RuntimeError: テーブルはあるのにバージョン行が無い場合. 空の新規 DB と
+            区別できずに最新スキーマを刻むと、既存 articles に列が追加されないまま
+            最新版と記録されて自己修復不能になるため、明示的に異常として止める.
+    """
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
+    ).fetchone()
+    if table is None:
+        return None
+    row = conn.execute("SELECT version FROM schema_version").fetchone()
+    if row is None:
+        raise RuntimeError(
+            "schema_version テーブルにバージョン行がありません. DB が破損している可能性が"
+            "あります. GitHub Releases の data-* スナップショットから復元してください "
+            "(uv run python scripts/publish_release.py --mode download "
+            "--repo Y-Kanekoo/qa-radar --download-to data/articles.db)."
+        )
+    return int(row["version"])
+
+
+def _apply_migrations(conn: sqlite3.Connection, current_version: int) -> bool:
+    """current_version の次から SCHEMA_VERSION まで逐次適用する.
+
+    別プロセス (常駐 MCP サーバ等) が同時に init_db を実行しても二重適用しないよう、
+    書き込みロックを取る `BEGIN IMMEDIATE` で開始し、トランザクション内でバージョンを
+    読み直してから適用する. この接続で1件以上適用した場合は True を返す.
+    """
+    applied = False
+    for target_version in range(current_version + 1, SCHEMA_VERSION + 1):
+        migration = MIGRATIONS.get(target_version)
+        if migration is None:
+            raise RuntimeError(
+                f"スキーマ v{target_version} へのマイグレーションが登録されていません"
+            )
+        # sqlite3 は DDL の前に暗黙 BEGIN しないため、明示的に開始する。
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            latest_version = _get_schema_version(conn)
+            if latest_version is not None and latest_version >= target_version:
+                # 直前に別プロセスが適用済み。二重適用を避けて次へ進む。
+                conn.rollback()
+                continue
+            migration(conn)
+            conn.execute("UPDATE schema_version SET version = ?", (target_version,))
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
+            applied = True
+    return applied
 
 
 def init_db(path: Path) -> sqlite3.Connection:
@@ -118,24 +335,45 @@ def init_db(path: Path) -> sqlite3.Connection:
 
     Returns:
         オープンした sqlite3.Connection. 利用後は呼び出し側で `close()` する.
+
+    Raises:
+        RuntimeError: DB がコードより新しい場合、マイグレーションが未登録の場合、
+            または schema_version テーブルにバージョン行が無い破損状態の場合.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # この接続は Python UDF を持つためスレッド間で共有しない。UDF コールバックと
+    # GIL の相互ブロックによりハングする可能性がある。
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA_SQL)
+    conn.create_function("word_boundary_match", 2, _word_boundary_match, deterministic=True)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")
 
-    row = conn.execute("SELECT version FROM schema_version").fetchone()
-    if row is None:
-        conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-        conn.commit()
-    elif row["version"] < SCHEMA_VERSION:
-        # 前方マイグレーション: 新テーブルは CREATE TABLE IF NOT EXISTS で既に作成済み.
-        # 列追加が無いバージョン差分なら version 番号の更新のみで十分.
-        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-        conn.commit()
-    elif row["version"] > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"スキーマバージョン不一致: DB={row['version']} > コード={SCHEMA_VERSION}. "
-            "より新しいコードでDBが作られている可能性があります."
-        )
+    try:
+        current_version = _get_schema_version(conn)
+        if current_version is None:
+            # schema_version テーブル自体が無い = 完全な新規 DB。最新 CREATE 文で
+            # 直接作成し、過去のマイグレーションを経ない。
+            # (テーブルはあるが行が無いケースは _get_schema_version が RuntimeError)
+            conn.executescript(_SCHEMA_SQL)
+            conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
+            conn.commit()
+        elif current_version > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"スキーマバージョン不一致: DB={current_version} > コード={SCHEMA_VERSION}. "
+                "より新しいコードでDBが作られている可能性があります."
+            )
+        else:
+            migrations_applied = _apply_migrations(conn, current_version)
+            if migrations_applied:
+                # VACUUM はトランザクション内では実行できないため、全マイグレーション
+                # 適用後に、v5 以降の軽微な移行を含め無条件で1回だけ実行する。
+                try:
+                    conn.execute("VACUUM")
+                except sqlite3.Error:
+                    logger.warning("VACUUM をスキップしました(他プロセスが DB 使用中)")
+    except Exception:
+        conn.close()
+        raise
     return conn

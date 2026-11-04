@@ -19,10 +19,18 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 DATA_TAG_PREFIX = "data-"
 DEFAULT_RETENTION_DAYS = 7
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class DataRelease(TypedDict):
+    """GitHub Release の保持判定に必要な情報."""
+
+    tagName: str
+    publishedAt: NotRequired[str | None]
 
 
 def _gh(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -58,13 +66,13 @@ def create_data_release(db_path: Path, repo: str | None = None) -> str:
     return tag
 
 
-def list_data_releases(repo: str | None = None) -> list[dict[str, str]]:
-    """data-* タグの release を tag/createdAt のリストで返す."""
-    args = ["release", "list", "--limit", "200", "--json", "tagName,createdAt"]
+def list_data_releases(repo: str | None = None) -> list[DataRelease]:
+    """data-* タグの release を tag/publishedAt のリストで返す."""
+    args = ["release", "list", "--limit", "200", "--json", "tagName,publishedAt"]
     if repo:
         args.extend(["--repo", repo])
     proc = _gh(*args, capture=True)
-    releases: list[dict[str, str]] = json.loads(proc.stdout)
+    releases: list[DataRelease] = json.loads(proc.stdout)
     return [r for r in releases if r["tagName"].startswith(DATA_TAG_PREFIX)]
 
 
@@ -83,13 +91,27 @@ def delete_release(tag: str, repo: str | None = None) -> bool:
 def cleanup_old_releases(
     repo: str | None = None, retention_days: int = DEFAULT_RETENTION_DAYS
 ) -> int:
-    """指定日数より古い data-* release を削除. 削除件数を返す."""
+    """指定日数より古い data-* release を削除. 削除件数を返す.
+
+    ただし最新の data-* release は経過日数に関わらず削除しない
+    (安全ガード: 全スナップショット消失を防ぐ). 「最新」は
+    download_latest_db と同じ規約でタグ名 (data-YYYY-MM-DDTHHMM) の
+    辞書順最大で判定する.
+    """
     cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
     releases = list_data_releases(repo=repo)
+    if not releases:
+        return 0
+    latest_tag = max(releases, key=lambda r: r["tagName"])["tagName"]
     deleted = 0
     for r in releases:
-        created = datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
-        if created < cutoff and delete_release(r["tagName"], repo=repo):
+        if r["tagName"] == latest_tag:
+            continue
+        published_at = r.get("publishedAt")
+        if published_at is None:
+            continue
+        published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        if published < cutoff and delete_release(r["tagName"], repo=repo):
             deleted += 1
     return deleted
 

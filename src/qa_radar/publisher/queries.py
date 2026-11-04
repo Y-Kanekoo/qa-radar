@@ -8,9 +8,118 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 
-from qa_radar.publisher.pages import SourceSummary, TagSummary
+from qa_radar.publisher.pages import Digest, SourceSummary, TagSummary
 from qa_radar.publisher.rss import FeedItem
+
+
+@dataclass(frozen=True)
+class DigestStats:
+    """ダイジェスト対象期間の重複除外済み統計."""
+
+    article_count: int
+    source_count: int
+
+
+def fetch_digest_stats(
+    conn: sqlite3.Connection, *, period_start: int, period_end: int
+) -> DigestStats:
+    """対象期間の記事総数と、その記事を配信したソース数を SQL で集計する."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS article_count, COUNT(DISTINCT a.source_id) AS source_count
+        FROM articles a
+        WHERE a.duplicate_of IS NULL
+          AND a.published_at >= ?
+          AND a.published_at <= ?
+        """,
+        (period_start, period_end),
+    ).fetchone()
+    return DigestStats(
+        article_count=int(row["article_count"]),
+        source_count=int(row["source_count"]),
+    )
+
+
+def fetch_digest_articles(
+    conn: sqlite3.Connection,
+    *,
+    period_start: int,
+    period_end: int,
+    limit: int,
+) -> list[dict[str, object]]:
+    """ダイジェスト内部処理専用に、公開可能な最新記事を取得する.
+
+    MCP の公開上限とは分離し、SQL の SELECT 自体から body を除外して公開境界を守る。
+    """
+    if limit < 1:
+        raise ValueError("limit は 1 以上で指定してください")
+    rows = conn.execute(
+        """
+        SELECT a.title, a.url, a.snippet, a.tags_json, s.name AS source_name
+        FROM articles a JOIN sources s ON a.source_id = s.id
+        WHERE a.duplicate_of IS NULL
+          AND a.published_at >= ?
+          AND a.published_at <= ?
+        ORDER BY a.published_at DESC, a.id DESC
+        LIMIT ?
+        """,
+        (period_start, period_end, limit),
+    ).fetchall()
+    return [
+        {
+            "title": row["title"],
+            "url": row["url"],
+            "snippet": row["snippet"],
+            "tags": json.loads(row["tags_json"]) or [],
+            "source_name": row["source_name"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_latest_digest(conn: sqlite3.Connection) -> Digest | None:
+    """最新の週刊ダイジェストを1件取得する."""
+    row = conn.execute(
+        """
+        SELECT id, created_at, period_start, period_end, content_md
+        FROM digests
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    return Digest(
+        id=int(row["id"]),
+        created_at=int(row["created_at"]),
+        period_start=int(row["period_start"]),
+        period_end=int(row["period_end"]),
+        content_md=str(row["content_md"]),
+    )
+
+
+def insert_digest(
+    conn: sqlite3.Connection,
+    *,
+    created_at: int,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+) -> int:
+    """週刊ダイジェストを保存し、採番された ID を返す."""
+    cursor = conn.execute(
+        """
+        INSERT INTO digests (created_at, period_start, period_end, content_md)
+        VALUES (?, ?, ?, ?)
+        """,
+        (created_at, period_start, period_end, content_md),
+    )
+    conn.commit()
+    if cursor.lastrowid is None:  # pragma: no cover
+        raise RuntimeError("digests INSERT後の lastrowid が None")
+    return int(cursor.lastrowid)
 
 
 def fetch_recent_articles(
@@ -19,7 +128,7 @@ def fetch_recent_articles(
     limit: int = 100,
     tag: str | None = None,
 ) -> list[FeedItem]:
-    """最近の記事を `published_at DESC` で取得する.
+    """重複を除いた最近の記事を `published_at DESC` で取得する.
 
     body 列は **絶対にロードしない** (公開境界).
     """
@@ -29,7 +138,7 @@ def fetch_recent_articles(
                 a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,
                 s.name AS source_name
             FROM articles a JOIN sources s ON a.source_id = s.id
-            WHERE a.tags_json LIKE ?
+            WHERE a.duplicate_of IS NULL AND a.tags_json LIKE ?
             ORDER BY a.published_at DESC
             LIMIT ?
         """
@@ -40,6 +149,7 @@ def fetch_recent_articles(
                 a.url, a.title, a.snippet, a.author, a.published_at, a.tags_json,
                 s.name AS source_name
             FROM articles a JOIN sources s ON a.source_id = s.id
+            WHERE a.duplicate_of IS NULL
             ORDER BY a.published_at DESC
             LIMIT ?
         """
@@ -64,12 +174,13 @@ def fetch_recent_articles(
 
 
 def fetch_source_summaries(conn: sqlite3.Connection) -> list[SourceSummary]:
-    """sources.html 用にソースと件数・最終公開日を取得."""
+    """sources.html 用に重複を除いた件数・最終公開日を取得."""
     sql = """
         SELECT s.slug, s.name, s.site_url, s.language, s.category,
                COUNT(a.id) AS article_count,
                MAX(a.published_at) AS latest
-        FROM sources s LEFT JOIN articles a ON a.source_id = s.id
+        FROM sources s LEFT JOIN articles a
+          ON a.source_id = s.id AND a.duplicate_of IS NULL
         GROUP BY s.id
         ORDER BY article_count DESC, s.slug
     """
@@ -89,13 +200,14 @@ def fetch_source_summaries(conn: sqlite3.Connection) -> list[SourceSummary]:
 
 
 def fetch_tag_summaries(conn: sqlite3.Connection, *, min_count: int = 1) -> list[TagSummary]:
-    """タグ別件数を集計する.
+    """公開表示と揃えるため重複を除いてタグ別件数を集計する.
 
     tags_json は JSON 配列. SQLite の json_each で展開する.
     """
     sql = """
         SELECT je.value AS tag, COUNT(*) AS cnt
         FROM articles a, json_each(a.tags_json) je
+        WHERE a.duplicate_of IS NULL
         GROUP BY tag
         HAVING cnt >= ?
         ORDER BY cnt DESC, tag

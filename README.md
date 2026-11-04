@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-**qa-radar** collects articles, papers, and tool releases from 30+ QA/testing
+**qa-radar** collects articles, papers, and tool releases from 44 QA/testing
 sources (Japanese + English) and serves them through three channels:
 
 1. **Public RSS feed** — hosted on GitHub Pages
@@ -15,6 +15,10 @@ sources (Japanese + English) and serves them through three channels:
 
 For the Japanese readme, see [README.ja.md](README.ja.md).
 
+共有ライブラリ radar-core v0.1.0 をタグ固定で利用し、日時変換・HTML除去・本文ハッシュを
+既存モジュールから委譲しています。移行範囲・次段階の候補は
+[段階的導入メモ](docs/radar-core.md) を参照してください。
+
 ## Status
 
 🚧 Under active development.
@@ -22,14 +26,17 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 | Phase | Status |
 |-------|--------|
 | 0. Repo setup | ✅ |
-| 1. Crawler + DB | 🚧 |
-| 2. Tagger | ⏳ |
-| 3. RSS + Pages | ⏳ |
-| 4. Discord notifier | ⏳ |
+| 1. Crawler + DB | ✅ |
+| 2. Tagger | ✅ |
+| 3. RSS + Pages | ✅ |
+| 4. Discord notifier | ✅ |
 | 5. MCP server | ✅ |
-| 6. PyPI publish | ✅ |
+| 6. PyPI publish | ⏳ workflow ready, not yet published |
 | 7. Cron automation | ✅ |
 | 8. LLM summarizer (optional) | ✅ |
+| 9. Source expansion (30→40) | ✅ |
+| 10. Ops recovery | ✅ |
+| 11. AI/LLM testing sources (40→44) | ✅ |
 
 ## Differentiation
 
@@ -37,33 +44,41 @@ For the Japanese readme, see [README.ja.md](README.ja.md).
 |---------|----------|------------------------------|------------------|
 | MCP support | ✅ | ❌ | ✅ |
 | Multi-language (JP+EN) | ✅ | JP only | depends |
-| AI/ML tagging | ✅ rule-based + opt LLM | ❌ | ❌ |
-| Full-text search (FTS5) | ✅ | ❌ | ❌ |
-| Tool releases (9 repos) | ✅ | ❌ | ❌ |
+| Tagging | ✅ rule-based | ❌ | ❌ |
+| Full-text search (FTS5 trigram) | ✅ | ❌ | ❌ |
+| Tool releases (13 repos) | ✅ | ❌ | ❌ |
 | Academic papers (arxiv) | ✅ | ❌ | ❌ |
 
 ## Sources
 
-30 verified sources across 4 categories:
-- **Tools (9)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure
-- **Blogs (16)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech, Cybozu, Sansan, etc.
-- **Communities (3)**: Ministry of Testing, DEV.to (qa), Medium (test-automation)
+44 verified sources across 5 categories (ja 16 / en 28):
+- **Tools (13)**: Playwright, Cypress, Selenium, Jest, Vitest, pytest, Appium, k6, Allure —
+  Phase 11 added AI/LLM testing tools: promptfoo, DeepEval, Giskard, Langfuse
+- **Blogs (20)**: Google Testing Blog, mabl, Applitools, BrowserStack, m3 Tech, Cybozu, Sansan,
+  KAKEHASHI, BASE, nihonbuson, kawaguti, goyoki, mybest (Zenn), etc. — Phase 9 added
+  Snyk, TestRail, Maestro, Grafana Labs, Cypress Blog, Semaphore, Software Testing Magazine
+- **Communities (6)**: Ministry of Testing, DEV.to (qa), Medium (test-automation) —
+  Phase 9 added Qiita (テスト自動化 / QA tags), Zenn (testing topic)
+- **Notes (4)**: Akiyama Kouichi, tarappo, Yumoto Tsuyoshi, QA-tpen
 - **Papers (1)**: arxiv cs.SE
-- **Notes (5+)**: Akiyama Kouichi, tarappo, Yumoto Tsuyoshi, etc.
 
 See [config/sources.yaml](config/sources.yaml) for the full list and
 [docs/sources.md](docs/sources.md) for ToS analysis.
 
 ## MCP server usage
 
-The local MCP server exposes 5 tools you can call from Claude Desktop / Claude Code:
+The local MCP server exposes 5 standard tools, plus an optional summarization tool, for Claude Desktop / Claude Code:
 
-- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5+BM25
+- `search_articles(query, tags?, date_from?, date_to?, limit, offset)` — full-text search via SQLite FTS5 trigram + BM25; mixed queries use FTS for terms of 3+ characters and LIKE for shorter terms, restricting short ASCII alphanumeric terms to word-boundary matches; all-short queries use LIKE ordered by publication date
 - `list_recent(days, source?, tag?, limit)` — recent articles
 - `get_article(article_id, include_body)` — article details (body defaults to off)
 - `list_sources()` — aggregated sources with counts
 - `list_tags(min_count, limit)` — tag occurrence counts
-- `summarize_article(article_id, max_tokens, model)` — **opt-in**. Requires `ANTHROPIC_API_KEY` env and `pip install qa-radar[ai]`. Summarizes article body with Claude Haiku 4.5.
+- `summarize_article(article_id, max_tokens, model)` — **opt-in**. Requires `ANTHROPIC_API_KEY` env and the `ai` extra (see below). Summarizes article body with Claude Haiku 4.5.
+
+> **Note**: qa-radar has not been published to PyPI yet (see Status table above), so
+> `uvx qa-radar` does not work yet. Install directly from GitHub instead. This section
+> will be updated to the PyPI-based flow once a release is published.
 
 Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.json`):
 
@@ -72,7 +87,7 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
   "mcpServers": {
     "qa-radar": {
       "command": "uvx",
-      "args": ["qa-radar"],
+      "args": ["--from", "git+https://github.com/Y-Kanekoo/qa-radar", "qa-radar"],
       "env": {
         "QA_RADAR_DB_PATH": "/path/to/articles.db"
       }
@@ -81,10 +96,13 @@ Register it in your MCP client config (`claude_desktop_config.json` or `.mcp.jso
 }
 ```
 
-(`uvx qa-radar` pulls the latest published version from PyPI on first run and caches it.)
+(`uvx --from git+https://github.com/Y-Kanekoo/qa-radar qa-radar` pulls the latest `main`
+branch on each run and caches it. Once PyPI publish is complete, this will switch back to
+the simpler `uvx qa-radar` form.)
 
-If you want to pin a specific version or pre-release, use `uvx qa-radar==0.1.0` or
-`uvx --from git+https://github.com/Y-Kanekoo/qa-radar qa-radar` for the latest `main`.
+For the LLM summarizer opt-in, use the `ai` extra:
+`uvx --from "qa-radar[ai] @ git+https://github.com/Y-Kanekoo/qa-radar" qa-radar`
+(or, for a local clone, `pip install -e ".[ai]"`).
 
 For development with a local clone:
 
@@ -100,6 +118,9 @@ For development with a local clone:
 ```
 
 DB path resolution order: `QA_RADAR_DB_PATH` env var > repo-local `data/articles.db` > `~/Library/Caches/qa-radar/articles.db` (macOS).
+
+SQLite 3.34+ is required for the FTS5 trigram tokenizer.
+Known trade-off: trigram does not provide `remove_diacritics`, so `café` and `cafe` are distinct search terms.
 
 
 ## Development setup

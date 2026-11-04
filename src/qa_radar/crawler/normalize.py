@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-import calendar
 import hashlib
 import re
-import time
-from html.parser import HTMLParser
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from radar_core import normalize as _core_normalize
 
 # 削除する追跡パラメータ. 大文字小文字区別なし.
 TRACKING_PARAMS = frozenset(
@@ -50,41 +49,29 @@ def normalize_url(url: str) -> str:
 
 def normalize_published(struct_time: tuple[int, ...] | None) -> int:
     """published_parsed (UTC tuple) をUNIX秒に変換. None は現在時刻を返す."""
-    if struct_time is None:
-        return int(time.time())
-    padded = struct_time + (0,) * (9 - len(struct_time))
-    return calendar.timegm(padded)
-
-
-class _StripTags(HTMLParser):
-    """HTMLタグを除去しテキストノードのみ抽出する補助パーサ."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._chunks: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self._chunks.append(data)
-
-    def get_text(self) -> str:
-        return "".join(self._chunks)
+    return _core_normalize.normalize_published(struct_time)
 
 
 def strip_html(text: str) -> str:
     """HTMLタグを除去しエンティティをデコードする."""
-    if not text:
-        return ""
-    parser = _StripTags()
-    try:
-        parser.feed(text)
-        parser.close()
-    except (ValueError, AssertionError):
-        # 壊れたHTMLの場合は元テキストをそのまま返す
-        return text
-    return parser.get_text()
+    return _core_normalize.strip_html(text)
 
 
 _WS = re.compile(r"\s+")
+
+
+def collapse_whitespace(text: str) -> str:
+    """連続する空白文字を1つのスペースに畳み、前後を除去する.
+
+    本文ハッシュ・抜粋・転載判定の本文長ガードで **同一の正規化** を使うための共通処理.
+    ここを変えると body_hash の対象も同時に変わる点に注意.
+    """
+    return _WS.sub(" ", text).strip()
+
+
+def normalize_body_text(body: str) -> str:
+    """HTML 除去 + 空白正規化を適用した本文を返す (ハッシュ計算と同じ前処理)."""
+    return collapse_whitespace(strip_html(body))
 
 
 def make_snippet(body: str, max_chars: int = 100) -> str:
@@ -100,8 +87,7 @@ def make_snippet(body: str, max_chars: int = 100) -> str:
     Returns:
         抜粋. max_chars を超える場合は末尾に `…` を付ける.
     """
-    plain = strip_html(body)
-    plain = _WS.sub(" ", plain).strip()
+    plain = normalize_body_text(body)
     if len(plain) <= max_chars:
         return plain
     truncated = plain[:max_chars]
@@ -111,7 +97,15 @@ def make_snippet(body: str, max_chars: int = 100) -> str:
     return truncated.rstrip() + "…"
 
 
+def hash_normalized_body(normalized_body: str) -> str:
+    """`normalize_body_text()` 済み本文の SHA256 hex digest.
+
+    呼び出し側が正規化本文を既に持っている場合 (転載判定の本文長ガードなど) に、
+    二重で正規化せずハッシュだけを求めるための入口.
+    """
+    return hashlib.sha256(normalized_body.encode("utf-8")).hexdigest()
+
+
 def compute_body_hash(body: str) -> str:
     """正規化後本文の SHA256 hex digest. クロスソース重複検出用."""
-    plain = _WS.sub(" ", strip_html(body)).strip()
-    return hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    return _core_normalize.compute_body_hash(body)

@@ -108,6 +108,9 @@ header nav a { font-size: 0.9rem; }
 .tag-cloud li { display: flex; align-items: center; gap: 0.25rem; }
 .tag-cloud .count { color: var(--muted); font-size: 0.85rem; }
 
+/* Weekly digest */
+.digest .meta { color: var(--muted); font-size: 0.9rem; }
+
 /* Footer */
 footer {
     border-top: 1px solid var(--border);

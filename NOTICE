@@ -17,6 +17,8 @@ article bodies or full-text re-publication.
 Operational guidelines / 運用ガイドライン:
 - Display titles, snippets (≤100 chars), and source URLs only.
   公開する情報はタイトル、抜粋（100字以内）、元URLのみ。
+- Weekly digests are generated only from published titles, snippets, and source URLs.
+  週刊ダイジェストは公開済みのタイトル・抜粋・元URLのみから生成。
 - Always link back to the original source.
   全ての記事に元記事へのリンクを併記。
 - Honor robots.txt and Terms of Service of each source.

@@ -6,12 +6,18 @@ HTML エスケープは `html.escape` で対応する.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
 from qa_radar.publisher.rss import FeedItem, main_feed_url, tag_feed_url
+
+_DIGEST_URL_RE = re.compile(
+    r"https?://(?:(?!https?://)[^\s、。…）)」』,;:])*?(?="
+    r"[、。…）)」』,;:]|\.(?=\s|[、。…）)」』,;:]|[^\x00-\x7F]|$)|\s|https?://|$)"
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,17 @@ class TagSummary:
     article_count: int
 
 
+@dataclass(frozen=True)
+class Digest:
+    """digest.html 表示用の週刊ダイジェスト."""
+
+    id: int
+    created_at: int
+    period_start: int
+    period_end: int
+    content_md: str
+
+
 # ---------------- 共通テンプレート ----------------
 
 _HTML_HEADER = """<!DOCTYPE html>
@@ -46,7 +63,7 @@ _HTML_HEADER = """<!DOCTYPE html>
 <link rel="stylesheet" href="{css_path}">
 <link rel="alternate" type="application/atom+xml" title="qa-radar" href="{atom_path}">
 <link rel="alternate" type="application/rss+xml" title="qa-radar" href="{rss_path}">
-<meta name="description" content="QA/テスト自動化のニュースアグリゲーター. 30ソースから日英記事を集約.">
+<meta name="description" content="{description}">
 </head>
 <body>
 <header>
@@ -54,6 +71,7 @@ _HTML_HEADER = """<!DOCTYPE html>
 <p class="subtitle">QA/テスト自動化のニュースアグリゲーター</p>
 <nav>
 <a href="{root_path}">最新記事</a>
+<a href="digest.html">週刊ダイジェスト</a>
 <a href="sources.html">ソース一覧</a>
 <a href="tags.html">タグ一覧</a>
 <a href="feed.atom">Atom</a>
@@ -83,7 +101,14 @@ _HTML_FOOTER = """</main>
 """
 
 
-def _render_header(title: str, *, in_subdir: bool = False) -> str:
+def _meta_description(source_count: int | None) -> str:
+    """meta description を生成する. source_count 不明時はソース数を省略する."""
+    if source_count is None:
+        return "QA/テスト自動化のニュースアグリゲーター. 日英記事を集約."
+    return f"QA/テスト自動化のニュースアグリゲーター. {source_count}ソースから日英記事を集約."
+
+
+def _render_header(title: str, *, in_subdir: bool = False, source_count: int | None = None) -> str:
     root = "../" if in_subdir else "./"
     return _HTML_HEADER.format(
         title=escape(title),
@@ -91,6 +116,7 @@ def _render_header(title: str, *, in_subdir: bool = False) -> str:
         atom_path=f"{root}feed.atom",
         rss_path=f"{root}feed.xml",
         root_path=root,
+        description=_meta_description(source_count),
     )
 
 
@@ -101,6 +127,24 @@ def _render_footer() -> str:
 def _format_date(unix_seconds: int) -> str:
     """unix秒を YYYY-MM-DD で表示."""
     return datetime.fromtimestamp(unix_seconds, tz=UTC).strftime("%Y-%m-%d")
+
+
+def format_digest_meta(
+    *,
+    period_start: int,
+    period_end: int,
+    content_md: str,
+    article_count: int,
+    source_count: int,
+) -> str:
+    """コード集計値からダイジェストの期間・件数ヘッダを組み立てる."""
+    period = f"{_format_date(period_start)}〜{_format_date(period_end)}"
+    introduced_count = min(article_count, len(set(_DIGEST_URL_RE.findall(content_md))))
+    omitted_count = article_count - introduced_count
+    return (
+        f"対象期間: {period} / 全{article_count}件・{source_count}ソース / "
+        f"主要{introduced_count}件を紹介（他{omitted_count}件）"
+    )
 
 
 # ---------------- 個別ページ ----------------
@@ -124,20 +168,31 @@ def _render_article_card(item: FeedItem) -> str:
     )
 
 
-def render_index(items: list[FeedItem]) -> str:
-    """トップページ HTML を返す."""
+def render_index(items: list[FeedItem], *, source_count: int | None = None) -> str:
+    """トップページ HTML を返す.
+
+    Args:
+        items: 表示する記事一覧.
+        source_count: 有効ソース数 (呼び出し側の `qa_radar.sources.load_sources()`
+            集計結果を渡す想定). 不明な場合は None でソース数表記を省略する.
+    """
+    hero_lead = f"{source_count} ソースから集約した" if source_count is not None else "集約した"
     body = (
         f'<section class="hero">'
-        f"<p>30 ソースから集約した QA/テスト自動化の記事 {len(items)} 件 (最新順).</p>"
+        f"<p>{hero_lead} QA/テスト自動化の記事 {len(items)} 件 (最新順).</p>"
         f"</section>"
     )
     body += '<section class="articles">'
     body += "\n".join(_render_article_card(it) for it in items)
     body += "</section>"
-    return _render_header(f"{len(items)} 件の最新記事 — qa-radar") + body + _render_footer()
+    return (
+        _render_header(f"{len(items)} 件の最新記事 — qa-radar", source_count=source_count)
+        + body
+        + _render_footer()
+    )
 
 
-def render_sources_page(sources: list[SourceSummary]) -> str:
+def render_sources_page(sources: list[SourceSummary], *, source_count: int | None = None) -> str:
     body = "<h2>集約ソース一覧</h2>"
     body += '<table class="sources">'
     body += (
@@ -163,10 +218,12 @@ def render_sources_page(sources: list[SourceSummary]) -> str:
             f"</tr>"
         )
     body += "</tbody></table>"
-    return _render_header("ソース一覧 — qa-radar") + body + _render_footer()
+    return (
+        _render_header("ソース一覧 — qa-radar", source_count=source_count) + body + _render_footer()
+    )
 
 
-def render_tags_page(tags: list[TagSummary]) -> str:
+def render_tags_page(tags: list[TagSummary], *, source_count: int | None = None) -> str:
     body = "<h2>タグ一覧</h2>"
     body += "<p>各タグをクリックすると、そのタグの Atom フィードが取得できます.</p>"
     body += '<ul class="tag-cloud">'
@@ -176,7 +233,96 @@ def render_tags_page(tags: list[TagSummary]) -> str:
             f'<span class="count">({t.article_count})</span></li>'
         )
     body += "</ul>"
-    return _render_header("タグ一覧 — qa-radar") + body + _render_footer()
+    return (
+        _render_header("タグ一覧 — qa-radar", source_count=source_count) + body + _render_footer()
+    )
+
+
+def _render_digest_markdown(content_md: str) -> str:
+    """許可した最小限の Markdown を HTML に変換する.
+
+    見出し (`#` / `##`)、箇条書き (`-`)、通常行だけを扱う。すべての本文を
+    `html.escape` に通した後、http/https URL だけをリンク化する。
+    """
+    rendered: list[str] = []
+    in_list = False
+
+    def close_list() -> None:
+        nonlocal in_list
+        if in_list:
+            rendered.append("</ul>")
+            in_list = False
+
+    def render_text(text: str) -> str:
+        rendered_parts: list[str] = []
+        last_end = 0
+        for match in _DIGEST_URL_RE.finditer(text):
+            rendered_parts.append(escape(text[last_end : match.start()]))
+            url = escape(match.group(0))
+            rendered_parts.append(f'<a href="{url}" rel="noopener">{url}</a>')
+            last_end = match.end()
+        rendered_parts.append(escape(text[last_end:]))
+        return "".join(rendered_parts)
+
+    for line in content_md.splitlines():
+        if line.startswith("## "):
+            close_list()
+            rendered.append(f"<h3>{render_text(line[3:])}</h3>")
+        elif line.startswith("# "):
+            close_list()
+            rendered.append(f"<h2>{render_text(line[2:])}</h2>")
+        elif line.startswith("- "):
+            if not in_list:
+                rendered.append("<ul>")
+                in_list = True
+            rendered.append(f"<li>{render_text(line[2:])}</li>")
+        elif line.strip():
+            close_list()
+            rendered.append(f"<p>{render_text(line)}</p>")
+        else:
+            close_list()
+    close_list()
+    return "\n".join(rendered)
+
+
+def render_digest_page(
+    digest: Digest | None,
+    *,
+    source_count: int | None = None,
+    article_count: int | None = None,
+    digest_source_count: int | None = None,
+) -> str:
+    """最新の週刊ダイジェストを表示する HTML を返す."""
+    if digest is None:
+        body = (
+            '<section class="digest">'
+            "<h2>週刊 LLM ダイジェスト</h2>"
+            "<p>ダイジェストはまだ生成されていません。</p>"
+            "</section>"
+        )
+    else:
+        if article_count is not None and digest_source_count is not None:
+            meta = format_digest_meta(
+                period_start=digest.period_start,
+                period_end=digest.period_end,
+                content_md=digest.content_md,
+                article_count=article_count,
+                source_count=digest_source_count,
+            )
+        else:
+            period = f"{_format_date(digest.period_start)}〜{_format_date(digest.period_end)}"
+            meta = f"対象期間: {period}"
+        body = (
+            '<section class="digest">'
+            f'<p class="meta">{escape(meta)}</p>'
+            f"{_render_digest_markdown(digest.content_md)}"
+            "</section>"
+        )
+    return (
+        _render_header("週刊ダイジェスト — qa-radar", source_count=source_count)
+        + body
+        + _render_footer()
+    )
 
 
 # ---------------- 書き出し ----------------
@@ -190,10 +336,13 @@ def write_html(content: str, output_path: Path) -> Path:
 
 # 公開 URL ヘルパ (将来 about.html などで利用)
 __all__ = [
+    "Digest",
     "FeedItem",
     "SourceSummary",
     "TagSummary",
+    "format_digest_meta",
     "main_feed_url",
+    "render_digest_page",
     "render_index",
     "render_sources_page",
     "render_tags_page",

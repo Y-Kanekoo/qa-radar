@@ -7,7 +7,7 @@ import qa_radar
 
 def test_version() -> None:
     """パッケージのバージョン文字列が期待通り定義されている."""
-    assert qa_radar.__version__ == "0.1.0"
+    assert qa_radar.__version__ == "0.2.0"
 
 
 def test_main_callable() -> None:

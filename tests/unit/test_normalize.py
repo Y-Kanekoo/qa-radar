@@ -5,8 +5,11 @@ from __future__ import annotations
 import time
 
 from qa_radar.crawler.normalize import (
+    collapse_whitespace,
     compute_body_hash,
+    hash_normalized_body,
     make_snippet,
+    normalize_body_text,
     normalize_published,
     normalize_url,
     strip_html,
@@ -136,3 +139,13 @@ class TestComputeBodyHash:
         h = compute_body_hash("any input")
         assert len(h) == 64
         int(h, 16)  # 16進数として解釈可能
+
+    def test_shares_normalization_with_helpers(self) -> None:
+        """orchestrator が使う分割経路と compute_body_hash が一致する.
+
+        本文長ガードとハッシュ対象がずれないことを保証する回帰テスト.
+        """
+        raw = "<p>Hello  world</p>\n\n<p>again</p>"
+        normalized = collapse_whitespace(strip_html(raw))
+        assert normalized == normalize_body_text(raw)
+        assert hash_normalized_body(normalized) == compute_body_hash(raw)

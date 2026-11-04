@@ -9,6 +9,10 @@ MCP プロトコルに依存しない純粋関数として実装する. server.p
 - BM25 重み: title=5.0, body=1.0, tags=2.0 (タイトル/タグマッチを優先)
 - date_from/date_to は ISO8601 文字列 (例: "2024-01-15", "2024-01-15T00:00:00Z")
 - snippet ハイライト機能は将来追加 (現状は格納済みの snippet をそのまま返す)
+- 転載重複 (`articles.duplicate_of IS NOT NULL`) の扱い:
+    一覧・集計系 (`list_recent` / `list_sources` / `list_tags`) は RSS/Pages と
+    同じ件数になるよう **除外する**. `search_articles` だけはコーパス全体の発見性を
+    優先して除外しない. `get_article` は id 直接指定なので常に返す.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from typing import Any
 BM25_WEIGHT_TITLE = 5.0
 BM25_WEIGHT_BODY = 1.0
 BM25_WEIGHT_TAGS = 2.0
+MAX_SHORT_SEARCH_TERMS = 50
 
 
 def _fts5_safe_query(query: str) -> str:
@@ -35,6 +40,40 @@ def _fts5_safe_query(query: str) -> str:
     if not terms:
         return '""'  # 空クエリ
     return " ".join('"' + t.replace('"', '""') + '"' for t in terms)
+
+
+def _escape_like_term(term: str) -> str:
+    """LIKE の検索語に含まれるエスケープ文字とワイルドカードを無効化する."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _is_ascii_alnum(char: str) -> bool:
+    """文字が ASCII 英数字なら True を返す."""
+    return "A" <= char <= "Z" or "a" <= char <= "z" or "0" <= char <= "9"
+
+
+def _word_boundary_match(text: str | None, term: str) -> int:
+    """term が ASCII 英数字の語境界で text に出現する場合は 1 を返す.
+
+    語境界は検索語の前後が文字列端、または ASCII 英数字 `[A-Za-z0-9]` 以外の
+    位置とする。アンダースコアは語境界として扱うため、`MAX_DB_SIZE`
+    は `DB` にヒットする。ASCII 英字の大文字小文字は区別しない。
+    """
+    if text is None or not term:
+        return 0
+
+    low = text.lower()
+    term_lower = term.lower()
+    term_length = len(term_lower)
+    start = low.find(term_lower)
+    while start != -1:
+        end = start + term_length
+        has_left_boundary = start == 0 or not _is_ascii_alnum(low[start - 1])
+        has_right_boundary = end == len(low) or not _is_ascii_alnum(low[end])
+        if has_left_boundary and has_right_boundary:
+            return 1
+        start = low.find(term_lower, start + 1)
+    return 0
 
 
 def _iso_to_unix(iso: str) -> int:
@@ -76,14 +115,66 @@ def search_articles_impl(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """記事を全文検索する (FTS5 + BM25)."""
+    """記事を全文検索する.
+
+    `init_db()` で開いた接続（`word_boundary_match` 登録済み）が前提。
+
+    全語が3文字以上なら FTS5 + BM25、長語と短語が混在する場合は3文字以上の
+    語を FTS5、3文字未満の語を LIKE として AND 検索し、BM25 順で返す。全語が
+    3文字未満の場合は LIKE のみを使い、公開日時の降順で返す。
+
+    LIKE で扱う3文字未満の語のうち、純 ASCII 英数語は語境界でも絞り込む。
+    非 ASCII 短語は日本語などに同じ語境界を適用できないため、従来どおり部分一致
+    とする。全短語では約2千件を全走査して Python UDF を評価するため、
+    語境界関数は `str.find` で出現候補だけを走査する。混在時は FTS 絞り込み後に評価する。
+    """
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
     if offset < 0:
         raise ValueError("offset は 0 以上で指定してください")
 
-    where: list[str] = ["articles_fts MATCH ?"]
-    params: list[Any] = [_fts5_safe_query(query)]
+    # MCP 検索はコーパス全体の発見性を優先し、転載重複も意図的に除外しない。
+    terms = query.split()
+    long_terms = [term for term in terms if len(term) >= 3]
+    short_terms = [term for term in terms if len(term) < 3]
+    if len(short_terms) > MAX_SHORT_SEARCH_TERMS:
+        raise ValueError(f"短い語(3文字未満)が多すぎます(上限{MAX_SHORT_SEARCH_TERMS}語)")
+    where: list[str] = []
+    params: list[Any] = []
+
+    if not terms or long_terms:
+        where.append("articles_fts MATCH ?")
+        params.append(_fts5_safe_query(" ".join(long_terms) if terms else query))
+        from_clause = (
+            "articles_fts JOIN articles a ON a.id = articles_fts.rowid "
+            "JOIN sources s ON a.source_id = s.id"
+        )
+        order_by = (
+            f"bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})"
+        )
+    else:
+        from_clause = "articles a JOIN sources s ON a.source_id = s.id"
+        order_by = "a.published_at DESC, a.id DESC"
+
+    # trigram では3文字未満の語を検索できない。混在時は長語の FTS 絞り込みを維持し、
+    # 短語だけを LIKE にする。全短語時の約2千件規模の全走査は許容済み。
+    for term in short_terms:
+        pattern = f"%{_escape_like_term(term)}%"
+        if term.isascii() and term.isalnum():
+            where.append(
+                "((a.title LIKE ? ESCAPE '\\' AND word_boundary_match(a.title, ?)) "
+                "OR (a.body LIKE ? ESCAPE '\\' AND word_boundary_match(a.body, ?)) "
+                "OR (a.tags_json LIKE ? ESCAPE '\\' "
+                "AND word_boundary_match(a.tags_json, ?)))"
+            )
+            params.extend([pattern, term, pattern, term, pattern, term])
+        else:
+            # 非 ASCII または記号を含む短語(C#/C++ 等も部分一致)は、語境界を適用しない。
+            where.append(
+                "(a.title LIKE ? ESCAPE '\\' OR a.body LIKE ? ESCAPE '\\' "
+                "OR a.tags_json LIKE ? ESCAPE '\\')"
+            )
+            params.extend([pattern, pattern, pattern])
 
     if date_from:
         where.append("a.published_at >= ?")
@@ -92,17 +183,16 @@ def search_articles_impl(
         where.append("a.published_at <= ?")
         params.append(_iso_to_unix(date_to))
     if tags:
-        where.append("(" + " AND ".join(["a.tags_json LIKE ?"] * len(tags)) + ")")
-        params.extend([f'%"{t}"%' for t in tags])
+        where.append("(" + " AND ".join(["a.tags_json LIKE ? ESCAPE '\\'"] * len(tags)) + ")")
+        params.extend([f'%"{_escape_like_term(tag)}"%' for tag in tags])
 
     where_clause = " AND ".join(where)
     sql = f"""
         SELECT a.id, a.title, a.url, a.snippet, a.author, a.published_at, a.tags_json,
                s.name AS source_name
-        FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid
-        JOIN sources s ON a.source_id = s.id
+        FROM {from_clause}
         WHERE {where_clause}
-        ORDER BY bm25(articles_fts, {BM25_WEIGHT_TITLE}, {BM25_WEIGHT_BODY}, {BM25_WEIGHT_TAGS})
+        ORDER BY {order_by}
         LIMIT ? OFFSET ?
     """
     # limit+1 を取得して has_more を判定
@@ -127,22 +217,26 @@ def list_recent_impl(
     tag: str | None = None,
     limit: int = 30,
 ) -> list[dict[str, Any]]:
-    """直近 N 日の新着記事を新しい順で返す."""
+    """直近 N 日の新着記事を新しい順で返す.
+
+    RSS/Pages の一覧と同じ内容になるよう、転載重複 (duplicate_of) は除外する.
+    重複も含めて探したい場合は `search_articles` を使う.
+    """
     if not 1 <= days <= 365:
         raise ValueError("days は 1〜365 の範囲で指定してください")
     if not 1 <= limit <= 100:
         raise ValueError("limit は 1〜100 の範囲で指定してください")
 
     since = int(datetime.now(tz=UTC).timestamp()) - days * 86400
-    where: list[str] = ["a.published_at >= ?"]
+    where: list[str] = ["a.duplicate_of IS NULL", "a.published_at >= ?"]
     params: list[Any] = [since]
 
     if source:
         where.append("s.slug = ?")
         params.append(source)
     if tag:
-        where.append("a.tags_json LIKE ?")
-        params.append(f'%"{tag}"%')
+        where.append("a.tags_json LIKE ? ESCAPE '\\'")
+        params.append(f'%"{_escape_like_term(tag)}"%')
 
     where_clause = " AND ".join(where)
     sql = f"""
@@ -199,12 +293,16 @@ def get_article_impl(
 
 
 def list_sources_impl(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """集約しているソース一覧を返す. 各ソースの記事数 / 最終取得日を含む."""
+    """集約しているソース一覧を返す. 各ソースの記事数 / 最終取得日を含む.
+
+    件数は Pages の sources.html と揃えるため転載重複を除外して数える.
+    """
     sql = """
         SELECT s.slug, s.name, s.site_url, s.language, s.category, s.enabled,
                COUNT(a.id) AS article_count,
                MAX(a.published_at) AS latest_at
-        FROM sources s LEFT JOIN articles a ON a.source_id = s.id
+        FROM sources s LEFT JOIN articles a
+          ON a.source_id = s.id AND a.duplicate_of IS NULL
         GROUP BY s.id
         ORDER BY article_count DESC, s.slug
     """
@@ -236,6 +334,7 @@ def list_tags_impl(
     """利用可能なタグの一覧と各タグの記事数を返す.
 
     `min_count` 未満のロングテールは除外する.
+    件数は Pages のタグ集計と揃えるため転載重複を除外して数える.
     """
     if min_count < 1:
         raise ValueError("min_count は 1 以上で指定してください")
@@ -245,6 +344,7 @@ def list_tags_impl(
     sql = """
         SELECT je.value AS tag, COUNT(*) AS cnt
         FROM articles a, json_each(a.tags_json) je
+        WHERE a.duplicate_of IS NULL
         GROUP BY tag
         HAVING cnt >= ?
         ORDER BY cnt DESC, tag

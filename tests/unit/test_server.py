@@ -11,7 +11,13 @@ from qa_radar import server
 
 
 def test_mcp_instance_exists() -> None:
-    """FastMCP インスタンスが正しく作られている."""
+    """FastMCP インスタンスが正しく作られている.
+
+    NOTE: このテストと test_all_tools_registered() は、
+    test_server_e2e.py::test_list_tools_exposes_five_tools_with_expected_schema
+    (実プロトコル list_tools 経由) の完全な上位互換になっている。整理候補だが、
+    本PRのスコープ外のため今は残す(レビュー指摘 #should_fix)。
+    """
     assert server.mcp is not None
     assert server.APP_NAME == "qa-radar"
 

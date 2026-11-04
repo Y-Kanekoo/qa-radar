@@ -16,9 +16,28 @@ from feedgen.feed import FeedGenerator
 # サイトメタデータ. GitHub Pages の URL に対応.
 SITE_BASE_URL = "https://Y-Kanekoo.github.io/qa-radar"
 SITE_TITLE = "qa-radar"
-SITE_SUBTITLE = "QA/テスト自動化のニュースアグリゲーター (30ソース、日英対応)"
+# 既定値はソース数を含まない (呼び出し側でソース数不明な場合のフォールバック).
+# 実際のソース数を埋め込む場合は build_site_subtitle() を使うこと.
+SITE_SUBTITLE = "QA/テスト自動化のニュースアグリゲーター (日英対応)"
+SITE_SUBTITLE_TEMPLATE = "QA/テスト自動化のニュースアグリゲーター ({source_count}ソース、日英対応)"
 SITE_LANGUAGE = "ja"
 SITE_AUTHOR = {"name": "qa-radar", "uri": "https://github.com/Y-Kanekoo/qa-radar"}
+
+
+def build_site_subtitle(source_count: int) -> str:
+    """有効ソース数を埋め込んだサイト概要文を生成する.
+
+    ソース数は `config/sources.yaml` を `qa_radar.sources.load_sources()` で
+    読み込んだ呼び出し側 (例: scripts/build_pages.py) から渡される想定.
+    ソースコードにソース数の即値を残さないための関数.
+
+    Args:
+        source_count: 有効ソース数.
+
+    Returns:
+        SITE_SUBTITLE_TEMPLATE にソース数を埋め込んだ文字列.
+    """
+    return SITE_SUBTITLE_TEMPLATE.format(source_count=source_count)
 
 
 @dataclass(frozen=True)
