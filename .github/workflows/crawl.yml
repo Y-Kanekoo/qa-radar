@@ -121,7 +121,7 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # crawl-and-build / deploy いずれかの失敗、または Discord通知ステップの部分失敗を
   # 検知して専用Webhookへ通知する。ジョブ内ステップとして各ジョブに埋め込むと、
