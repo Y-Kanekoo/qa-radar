@@ -1,0 +1,116 @@
+# Official project metadata checked on 2026-10-07. Keep claims short and link
+# to primary documentation. Pricing can change; the digest links to current terms.
+# Only sources listed here are eligible for the separate technology digest.
+version: 1
+profiles:
+  playwright-mcp-releases:
+    name: Playwright MCP
+    dedicated_only: true
+    capability: LLMからアクセシビリティ情報を使ってブラウザを操作
+    qa_use: 探索テストとUI操作の試作
+    try_now: npx @playwright/mcp@latest をMCPクライアントに登録
+    limitations: Node.js 18以上とMCPクライアントが必要。操作結果の再現性は自分で検証
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: Apache-2.0
+    license_url: https://github.com/microsoft/playwright-mcp/blob/main/LICENSE
+    pricing: OSS本体は無償。接続先モデル等の費用は構成次第
+    pricing_url: https://github.com/microsoft/playwright-mcp#requirements
+    docs_url: https://github.com/microsoft/playwright-mcp#readme
+
+  browser-use-releases:
+    name: Browser Use
+    dedicated_only: true
+    capability: LLMエージェントでWebブラウザの操作を自動化
+    qa_use: 自然言語で探索シナリオを試し、手動テストの候補を作る
+    try_now: 公式QuickstartのPythonライブラリをローカル実行
+    limitations: モデル・ブラウザ環境が必要。結果の正確さと再現性は自分で検証
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: MIT
+    license_url: https://github.com/browser-use/browser-use/blob/main/LICENSE
+    pricing: OSS本体は無償。モデル利用・Cloud利用には別途費用の可能性
+    pricing_url: https://browser-use.com/pricing
+    docs_url: https://github.com/browser-use/browser-use#quickstart
+
+  stagehand-releases:
+    name: Stagehand
+    dedicated_only: true
+    capability: AIを使うブラウザ操作SDK。observe・act・extractを提供
+    qa_use: 変化するUIでの操作・データ抽出の試作
+    try_now: 公式Quickstartでローカルブラウザとモデルを設定
+    limitations: モデルAPIキー等が必要。テストの合否判定は別途設計
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: MIT
+    license_url: https://github.com/browserbase/stagehand/blob/main/LICENSE
+    pricing: OSS本体は無償。モデル・Browserbase利用は別途料金を確認
+    pricing_url: https://www.browserbase.com/pricing
+    docs_url: https://docs.stagehand.dev/v4/first-steps/quickstart
+
+  skyvern-releases:
+    name: Skyvern
+    dedicated_only: true
+    capability: LLMとComputer Visionでブラウザ上の作業を自動化
+    qa_use: 複数画面をまたぐ探索フローの試作
+    try_now: 公式Quickstartのローカル実行を試す
+    limitations: モデル・実行環境が必要。視覚操作の誤動作に注意して検証
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: AGPL-3.0
+    license_url: https://github.com/Skyvern-AI/skyvern/blob/main/LICENSE
+    pricing: OSS本体は無償。モデル・Cloud利用は別途料金を確認
+    pricing_url: https://www.skyvern.com/pricing
+    docs_url: https://github.com/Skyvern-AI/skyvern#quickstart
+
+  promptfoo-releases:
+    name: promptfoo
+    dedicated_only: false
+    capability: LLMアプリの評価・回帰テストとred team検査
+    qa_use: プロンプトとモデルの変更差分を評価ケースで比較
+    try_now: 公式ドキュメントのQuickstartを確認
+    limitations: 評価ケースと合否基準の設計が必要
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: 提供形態ごとの公式条件を確認
+    license_url: https://github.com/promptfoo/promptfoo/blob/main/LICENSE
+    pricing: OSS・商用プランの条件を公式料金で確認
+    pricing_url: https://www.promptfoo.dev/pricing/
+    docs_url: https://www.promptfoo.dev/docs/intro/
+
+  deepeval-releases:
+    name: DeepEval
+    dedicated_only: false
+    capability: LLM出力の評価とテストケース実行
+    qa_use: LLM機能の回帰評価をCIへ組み込む候補
+    try_now: 公式ドキュメントのQuickstartを確認
+    limitations: 評価指標と採点モデルの妥当性は自分で検証
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: 提供形態ごとの公式条件を確認
+    license_url: https://github.com/confident-ai/deepeval
+    pricing: OSS・商用プランの条件を公式サイトで確認
+    pricing_url: https://www.confident-ai.com/pricing
+    docs_url: https://docs.confident-ai.com/docs/getting-started
+
+  giskard-releases:
+    name: Giskard
+    dedicated_only: false
+    capability: AIアプリの評価と脆弱性・失敗ケースの検出
+    qa_use: LLMシステムのテスト観点と失敗例を収集
+    try_now: 公式ドキュメントの導入手順を確認
+    limitations: 対象アプリへの接続と評価データが必要
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: 提供形態ごとの公式条件を確認
+    license_url: https://github.com/Giskard-AI/giskard
+    pricing: OSS・商用プランの条件を公式サイトで確認
+    pricing_url: https://www.giskard.ai/pricing
+    docs_url: https://docs.giskard.ai/
+
+  langfuse-releases:
+    name: Langfuse
+    dedicated_only: false
+    capability: LLMアプリのトレース・評価・実験管理
+    qa_use: 失敗した応答を追跡し、回帰評価データに変える
+    try_now: 公式ドキュメントの導入手順を確認
+    limitations: 計測設定とデータ取り扱いの確認が必要
+    maturity: 公式リリースあり。QA用途の実検証は未実施
+    license: 提供形態ごとの公式条件を確認
+    license_url: https://github.com/langfuse/langfuse/blob/main/LICENSE
+    pricing: self-hostとCloudの条件を公式料金で確認
+    pricing_url: https://langfuse.com/pricing
+    docs_url: https://langfuse.com/docs
